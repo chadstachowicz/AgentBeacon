@@ -293,12 +293,11 @@ class P2PBeaconNode {
                 
                 let newConnections = 0;
                 for (const peerId of discovered) {
-                    try {
-                        await this.libp2p.dial(peerId);
+                    const beforeConnections = this.libp2p.getConnections().length;
+                    await this.connectToPeer(peerId, []);
+                    const afterConnections = this.libp2p.getConnections().length;
+                    if (afterConnections > beforeConnections) {
                         newConnections++;
-                        console.log(`✅ Connected to peer: ${peerId}`);
-                    } catch (error) {
-                        console.warn(`❌ Failed to connect to peer ${peerId}: ${error.message}`);
                     }
                 }
                 
@@ -684,18 +683,27 @@ class P2PBeaconNode {
         try {
             console.log(`🔗 Attempting to connect to peer: ${peerId}`);
             
-            // Try each multiaddr until one works
+            // Try each multiaddr until one works, ensuring peer ID is included
             for (const multiaddr of multiaddrs || []) {
                 try {
-                    await this.libp2p.dial(multiaddr);
-                    console.log(`✅ Successfully connected to peer: ${peerId} via ${multiaddr.toString()}`);
+                    // Check if multiaddr already includes peer ID
+                    let fullMultiaddr = multiaddr;
+                    if (!multiaddr.toString().includes('/p2p/')) {
+                        // Add peer ID to multiaddr
+                        fullMultiaddr = multiaddr.encapsulate(`/p2p/${peerId.toString()}`);
+                    }
+                    
+                    console.log(`🔗 Dialing: ${fullMultiaddr.toString()}`);
+                    await this.libp2p.dial(fullMultiaddr);
+                    console.log(`✅ Successfully connected to peer: ${peerId} via ${fullMultiaddr.toString()}`);
                     return;
                 } catch (dialError) {
                     console.log(`⚠️  Failed to dial ${multiaddr.toString()}: ${dialError.message}`);
                 }
             }
             
-            // If multiaddrs didn't work, try dialing by peer ID
+            // If multiaddrs didn't work, try dialing by peer ID only
+            console.log(`🔗 Attempting to dial peer by ID only: ${peerId}`);
             await this.libp2p.dial(peerId);
             console.log(`✅ Successfully connected to peer: ${peerId} by peer ID`);
         } catch (error) {
@@ -714,14 +722,9 @@ class P2PBeaconNode {
         if (connections.length === 0 && this.peers.size > 0) {
             console.log(`⚠️  Have discovered peers but no connections. Attempting to connect...`);
             
-            // Try to connect to discovered peers
+            // Try to connect to discovered peers using proper connection method
             for (const peerId of this.peers) {
-                try {
-                    await this.libp2p.dial(peerId);
-                    console.log(`🔗 Connected to peer: ${peerId}`);
-                } catch (error) {
-                    console.warn(`❌ Failed to connect to peer ${peerId}: ${error.message}`);
-                }
+                await this.connectToPeer(peerId, []);
             }
             
             // Update connections after dial attempts
