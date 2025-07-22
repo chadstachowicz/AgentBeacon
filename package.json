@@ -1,0 +1,49 @@
+{
+  "name": "beacon-network",
+  "version": "1.0.0",
+  "description": "Decentralized agent beacon network for agent discovery and registration",
+  "main": "src/beacon-node-simple.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/beacon-node-simple.js",
+    "start:p2p": "node src/beacon-node-p2p.js",
+    "dev": "nodemon src/beacon-node.js",
+    "agent": "node examples/register-agent.js",
+    "discover": "node examples/discover-agents.js",
+    "test": "node test/test.js",
+    "demo": "node demo.js"
+  },
+  "keywords": [
+    "agent",
+    "beacon",
+    "p2p",
+    "ipfs",
+    "libp2p",
+    "decentralized"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@libp2p/bootstrap": "^1.0.0",
+    "@libp2p/identify": "^1.0.0",
+    "@libp2p/mdns": "^11.0.46",
+    "@libp2p/pubsub": "^1.0.0",
+    "@libp2p/pubsub-peer-discovery": "^11.0.2",
+    "@libp2p/tcp": "^7.0.3",
+    "@libp2p/webrtc": "^1.0.0",
+    "@libp2p/websockets": "^9.2.18",
+    "commander": "^11.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "ipfs-http-client": "^60.0.0",
+    "libp2p": "^2.9.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
