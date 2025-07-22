@@ -32,13 +32,11 @@ class SimpleBeaconNode {
             this.setupAPI();
             
             // Start the server
-            this.server = this.app.listen(this.config.port, () => {
-                console.log(`📡 Beacon Node running on port ${this.config.port}`);
+            const port = process.env.PORT ? parseInt(process.env.PORT) : this.config.port;
+            this.server = this.app.listen(port, () => {
+                console.log(`📡 Beacon Node running on port ${port}`);
                 console.log(`🔗 IPFS connected to ${this.config.ipfsEndpoint}`);
-                console.log(`🌐 Web Dashboard: http://localhost:${this.config.port}`);
-                
-                // Setup WebSocket for real-time updates after server is created
-                this.setupWebSocket();
+                console.log(`🌐 Web Dashboard: http://localhost:${port}`);
             });
             
             console.log('✅ Beacon Node started successfully!');
