@@ -92,7 +92,7 @@ class P2PBeaconNode {
                     `/ip4/0.0.0.0/tcp/${this.config.p2pPort + 1}/ws`
                 ]
             },
-            transports: [webSockets()],
+            transports: [tcp(), webSockets()],
             connectionEncryption: [noise()],
             streamMuxers: [yamux()],
             peerDiscovery: [
@@ -114,6 +114,13 @@ class P2PBeaconNode {
         this.libp2p.addEventListener('peer:connect', (evt) => {
             const peer = evt.detail;
             console.log(`🤝 Connected to peer: ${peer.id}`);
+            console.log(`📊 Total connected peers: ${this.libp2p.getConnections().length}`);
+        });
+
+        this.libp2p.addEventListener('peer:disconnect', (evt) => {
+            const peer = evt.detail;
+            console.log(`❌ Disconnected from peer: ${peer.id}`);
+            this.peers.delete(peer.id.toString());
         });
 
         await this.libp2p.start();
@@ -237,6 +244,7 @@ class P2PBeaconNode {
         
         // Subscribe to agent registration events
         pubsub.addEventListener('message', (evt) => {
+            console.log(`📨 Received pubsub message on topic: ${evt.detail.topic}`);
             if (evt.detail.topic === 'agent-registration') {
                 this.handleAgentRegistration(evt.detail.data);
             }
@@ -244,6 +252,12 @@ class P2PBeaconNode {
 
         // Subscribe to the topic
         pubsub.subscribe('agent-registration');
+        console.log('📡 Subscribed to agent-registration topic');
+        
+        // Debug: Log when peers are added/removed from pubsub
+        pubsub.addEventListener('subscription-change', (evt) => {
+            console.log(`📊 Subscription change: ${evt.detail.topic}, peers: ${evt.detail.peersSubscribed.length}`);
+        });
     }
 
     async registerAgent(agentData) {
@@ -327,7 +341,11 @@ class P2PBeaconNode {
                 nodeId: this.nodeId
             });
             
+            console.log(`📢 Broadcasting agent registration: ${agentData.name}`);
+            console.log(`📊 Current pubsub peers: ${pubsub.getSubscribers('agent-registration').length}`);
+            
             await pubsub.publish('agent-registration', new TextEncoder().encode(message));
+            console.log('✅ Agent registration broadcast sent');
         } catch (error) {
             console.warn('⚠️  Failed to broadcast agent registration:', error.message);
         }
@@ -336,6 +354,8 @@ class P2PBeaconNode {
     handleAgentRegistration(data) {
         try {
             const message = JSON.parse(new TextDecoder().decode(data));
+            console.log(`📥 Processing agent registration message from node: ${message.nodeId}`);
+            
             if (message.type === 'agent_registration' && message.nodeId !== this.nodeId) {
                 const agent = message.agent;
                 this.agents.set(agent.id, agent);
@@ -346,6 +366,8 @@ class P2PBeaconNode {
                     type: 'agent_discovered',
                     agent: agent
                 });
+            } else if (message.nodeId === this.nodeId) {
+                console.log(`🔄 Ignoring own message from node: ${message.nodeId}`);
             }
         } catch (error) {
             console.warn('⚠️  Failed to handle agent registration:', error.message);
