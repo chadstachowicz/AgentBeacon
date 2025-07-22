@@ -92,6 +92,24 @@ class P2PBeaconNode {
                 agent.lastSeen = new Date().toISOString();
                 agent.restoredFromFile = true;
                 
+                // Add versioning fields for legacy agents
+                if (!agent.recordVersion) {
+                    agent.recordVersion = 1;
+                    agent.vectorClock = { [this.nodeId]: 1 };
+                    agent.lastModified = agent.registeredAt || new Date().toISOString();
+                    agent.lastModifiedBy = agent.registeredBy || this.nodeId;
+                    agent.contentHash = this.calculateContentHash(agent);
+                    agent.updateHistory = [{
+                        version: 1,
+                        timestamp: agent.lastModified,
+                        nodeId: agent.lastModifiedBy,
+                        action: 'migrated_from_legacy',
+                        contentHash: agent.contentHash
+                    }];
+                    
+                    console.log(`🔄 Added versioning to legacy agent: ${agent.name}`);
+                }
+                
                 this.agents.set(agent.id, agent);
             }
             
@@ -399,22 +417,40 @@ class P2PBeaconNode {
         });
 
         // Update agent status
-        this.app.put('/agents/:agentId/status', (req, res) => {
-            const agent = this.agents.get(req.params.agentId);
-            if (agent) {
-                Object.assign(agent, req.body);
-                agent.lastSeen = new Date().toISOString();
-                this.agents.set(req.params.agentId, agent);
-                
-                // Notify WebSocket clients
-                this.broadcastToClients({
-                    type: 'agent_status_updated',
-                    agent: agent
-                });
-                
-                res.json({ success: true, message: 'Agent status updated' });
-            } else {
-                res.status(404).json({ error: 'Agent not found' });
+        this.app.put('/agents/:agentId/status', async (req, res) => {
+            try {
+                const agent = this.agents.get(req.params.agentId);
+                if (agent) {
+                    // Use versioning for the update
+                    const updatedAgent = this.updateAgentVersion(agent, req.body, 'status_updated');
+                    this.agents.set(req.params.agentId, updatedAgent);
+                    
+                    // Store updated version in DHT
+                    await this.storeAgentInDHT(updatedAgent);
+                    
+                    // Update agent index
+                    await this.updateAgentIndex();
+                    
+                    // Save locally
+                    await this.saveAgentsToFile();
+                    
+                    // Notify WebSocket clients
+                    this.broadcastToClients({
+                        type: 'agent_status_updated',
+                        agent: updatedAgent
+                    });
+                    
+                    res.json({ 
+                        success: true, 
+                        message: 'Agent status updated',
+                        version: updatedAgent.recordVersion,
+                        contentHash: updatedAgent.contentHash
+                    });
+                } else {
+                    res.status(404).json({ error: 'Agent not found' });
+                }
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
             }
         });
 
@@ -656,6 +692,157 @@ class P2PBeaconNode {
                 res.status(500).json({ success: false, error: error.message });
             }
         });
+
+        // Get agent version information
+        this.app.get('/agents/:agentId/version', (req, res) => {
+            try {
+                const agent = this.agents.get(req.params.agentId);
+                if (agent) {
+                    res.json({
+                        id: agent.id,
+                        name: agent.name,
+                        recordVersion: agent.recordVersion,
+                        vectorClock: agent.vectorClock,
+                        contentHash: agent.contentHash,
+                        lastModified: agent.lastModified,
+                        lastModifiedBy: agent.lastModifiedBy,
+                        updateHistory: agent.updateHistory || []
+                    });
+                } else {
+                    res.status(404).json({ error: 'Agent not found' });
+                }
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // Compare agent versions across the network
+        this.app.get('/agents/:agentId/compare', async (req, res) => {
+            try {
+                const localAgent = this.agents.get(req.params.agentId);
+                if (!localAgent) {
+                    return res.status(404).json({ error: 'Agent not found locally' });
+                }
+
+                const remoteAgent = await this.getAgentFromDHT(req.params.agentId);
+                if (!remoteAgent) {
+                    return res.json({
+                        agent: localAgent.name,
+                        localVersion: localAgent.recordVersion,
+                        remoteVersion: null,
+                        status: 'local-only',
+                        inSync: false
+                    });
+                }
+
+                const inSync = localAgent.contentHash === remoteAgent.contentHash;
+                const clockComparison = this.compareVectorClocks(localAgent.vectorClock, remoteAgent.vectorClock);
+
+                res.json({
+                    agent: localAgent.name,
+                    localVersion: localAgent.recordVersion,
+                    remoteVersion: remoteAgent.recordVersion,
+                    localHash: localAgent.contentHash.slice(0, 8),
+                    remoteHash: remoteAgent.contentHash.slice(0, 8),
+                    inSync: inSync,
+                    clockComparison: clockComparison === 1 ? 'local-newer' : 
+                                   clockComparison === -1 ? 'remote-newer' : 'concurrent',
+                    localClock: localAgent.vectorClock,
+                    remoteClock: remoteAgent.vectorClock
+                });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // Manually trigger conflict resolution for an agent
+        this.app.post('/agents/:agentId/resolve-conflicts', async (req, res) => {
+            try {
+                const localAgent = this.agents.get(req.params.agentId);
+                if (!localAgent) {
+                    return res.status(404).json({ error: 'Agent not found locally' });
+                }
+
+                const remoteAgent = await this.getAgentFromDHT(req.params.agentId);
+                if (!remoteAgent) {
+                    return res.json({
+                        success: true,
+                        message: 'No remote version found, no conflicts to resolve',
+                        version: localAgent.recordVersion
+                    });
+                }
+
+                if (localAgent.contentHash === remoteAgent.contentHash) {
+                    return res.json({
+                        success: true,
+                        message: 'Versions are identical, no conflicts to resolve',
+                        version: localAgent.recordVersion
+                    });
+                }
+
+                const resolvedAgent = this.resolveAgentConflict(localAgent, remoteAgent);
+                this.agents.set(req.params.agentId, resolvedAgent);
+
+                // Store resolved version
+                await this.storeAgentInDHT(resolvedAgent);
+                await this.saveAgentsToFile();
+
+                res.json({
+                    success: true,
+                    message: 'Conflict resolved',
+                    resolvedVersion: resolvedAgent.recordVersion,
+                    action: resolvedAgent === localAgent ? 'kept-local' : 'accepted-remote'
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Get network-wide version status
+        this.app.get('/version-status', async (req, res) => {
+            try {
+                const agentStatuses = [];
+                
+                for (const [agentId, localAgent] of this.agents) {
+                    try {
+                        const remoteAgent = await this.getAgentFromDHT(agentId);
+                        const inSync = remoteAgent ? localAgent.contentHash === remoteAgent.contentHash : false;
+                        
+                        agentStatuses.push({
+                            id: agentId,
+                            name: localAgent.name,
+                            localVersion: localAgent.recordVersion,
+                            remoteVersion: remoteAgent?.recordVersion || null,
+                            inSync: inSync,
+                            lastModified: localAgent.lastModified,
+                            lastModifiedBy: localAgent.lastModifiedBy
+                        });
+                    } catch (error) {
+                        agentStatuses.push({
+                            id: agentId,
+                            name: localAgent.name,
+                            localVersion: localAgent.recordVersion,
+                            remoteVersion: null,
+                            inSync: false,
+                            error: error.message
+                        });
+                    }
+                }
+
+                const inSyncCount = agentStatuses.filter(a => a.inSync).length;
+                const totalCount = agentStatuses.length;
+
+                res.json({
+                    totalAgents: totalCount,
+                    inSync: inSyncCount,
+                    outOfSync: totalCount - inSyncCount,
+                    syncPercentage: totalCount > 0 ? Math.round((inSyncCount / totalCount) * 100) : 100,
+                    agents: agentStatuses
+                });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
     }
 
     setupWebSocket() {
@@ -742,7 +929,7 @@ class P2PBeaconNode {
         // Generate unique agent ID
         const agentId = crypto.randomBytes(16).toString('hex');
         
-        // Add metadata
+        // Add metadata with versioning
         const fullAgentData = {
             id: agentId,
             name: agentData.name,
@@ -756,8 +943,25 @@ class P2PBeaconNode {
             registeredAt: new Date().toISOString(),
             registeredBy: this.nodeId,
             lastSeen: new Date().toISOString(),
-            status: 'online'
+            status: 'online',
+            // Versioning and conflict resolution fields
+            recordVersion: 1,
+            vectorClock: { [this.nodeId]: 1 },
+            lastModified: new Date().toISOString(),
+            lastModifiedBy: this.nodeId,
+            contentHash: null, // Will be calculated
+            updateHistory: [{
+                version: 1,
+                timestamp: new Date().toISOString(),
+                nodeId: this.nodeId,
+                action: 'created',
+                contentHash: null
+            }]
         };
+
+        // Calculate content hash for integrity
+        fullAgentData.contentHash = this.calculateContentHash(fullAgentData);
+        fullAgentData.updateHistory[0].contentHash = fullAgentData.contentHash;
 
         // Store locally
         this.agents.set(agentId, fullAgentData);
@@ -930,7 +1134,7 @@ class P2PBeaconNode {
                         const fullAgent = await this.getAgentFromDHT(agentData.id);
                         if (fullAgent && !fullAgent.deleted) {
                             this.agents.set(fullAgent.id, fullAgent);
-                            console.log(`✨ Discovered new agent from DHT: ${fullAgent.name}`);
+                            console.log(`✨ Discovered new agent from DHT: ${fullAgent.name} (v${fullAgent.recordVersion})`);
                             
                             // Save to local file for persistence
                             await this.saveAgentsToFile();
@@ -940,6 +1144,36 @@ class P2PBeaconNode {
                                 type: 'agent_discovered',
                                 agent: fullAgent
                             });
+                        }
+                    } else {
+                        // Agent exists locally - check for conflicts
+                        const localAgent = this.agents.get(agentData.id);
+                        const remoteAgent = await this.getAgentFromDHT(agentData.id);
+                        
+                        if (remoteAgent && !remoteAgent.deleted) {
+                            // Compare versions and resolve conflicts
+                            if (localAgent.contentHash !== remoteAgent.contentHash) {
+                                console.log(`🔍 Content difference detected for agent: ${localAgent.name}`);
+                                console.log(`   Local: v${localAgent.recordVersion} (${localAgent.contentHash.slice(0, 8)}...)`);
+                                console.log(`   Remote: v${remoteAgent.recordVersion} (${remoteAgent.contentHash.slice(0, 8)}...)`);
+                                
+                                const resolvedAgent = this.resolveAgentConflict(localAgent, remoteAgent);
+                                
+                                if (resolvedAgent !== localAgent) {
+                                    this.agents.set(agentData.id, resolvedAgent);
+                                    console.log(`🔄 Updated agent: ${resolvedAgent.name} to v${resolvedAgent.recordVersion}`);
+                                    
+                                    // Save and notify
+                                    await this.saveAgentsToFile();
+                                    this.broadcastToClients({
+                                        type: 'agent_updated',
+                                        agent: resolvedAgent
+                                    });
+                                }
+                            } else {
+                                // Same content hash - just update lastSeen
+                                localAgent.lastSeen = new Date().toISOString();
+                            }
                         }
                     }
                 }
@@ -957,6 +1191,165 @@ class P2PBeaconNode {
                 }
             });
         }
+    }
+
+    // ===== Versioning and Conflict Resolution =====
+
+    calculateContentHash(agentData) {
+        // Create a stable hash of the agent's core content (excluding metadata fields)
+        const coreData = {
+            id: agentData.id,
+            name: agentData.name,
+            description: agentData.description,
+            capabilities: agentData.capabilities,
+            version: agentData.version,
+            url: agentData.url,
+            endpoint: agentData.endpoint,
+            metadata: agentData.metadata,
+            tags: agentData.tags,
+            status: agentData.status
+        };
+        
+        const contentString = JSON.stringify(coreData, Object.keys(coreData).sort());
+        return crypto.createHash('sha256').update(contentString).digest('hex');
+    }
+
+    compareVectorClocks(clock1, clock2) {
+        // Returns: 1 if clock1 > clock2, -1 if clock1 < clock2, 0 if concurrent
+        const allNodes = new Set([...Object.keys(clock1), ...Object.keys(clock2)]);
+        
+        let clock1Greater = false;
+        let clock2Greater = false;
+        
+        for (const nodeId of allNodes) {
+            const val1 = clock1[nodeId] || 0;
+            const val2 = clock2[nodeId] || 0;
+            
+            if (val1 > val2) clock1Greater = true;
+            if (val2 > val1) clock2Greater = true;
+        }
+        
+        if (clock1Greater && !clock2Greater) return 1;
+        if (clock2Greater && !clock1Greater) return -1;
+        return 0; // Concurrent updates
+    }
+
+    mergeVectorClocks(clock1, clock2) {
+        const allNodes = new Set([...Object.keys(clock1), ...Object.keys(clock2)]);
+        const merged = {};
+        
+        for (const nodeId of allNodes) {
+            merged[nodeId] = Math.max(clock1[nodeId] || 0, clock2[nodeId] || 0);
+        }
+        
+        return merged;
+    }
+
+    resolveAgentConflict(localAgent, remoteAgent) {
+        console.log(`🔀 Resolving conflict for agent: ${localAgent.name}`);
+        
+        // Step 1: Compare vector clocks
+        const clockComparison = this.compareVectorClocks(localAgent.vectorClock, remoteAgent.vectorClock);
+        
+        if (clockComparison === 1) {
+            console.log(`✅ Local version is newer (vector clock)`);
+            return localAgent;
+        } else if (clockComparison === -1) {
+            console.log(`📥 Remote version is newer (vector clock)`);
+            return this.mergeAgentUpdates(localAgent, remoteAgent);
+        } else {
+            // Concurrent updates - use additional tiebreakers
+            console.log(`⚡ Concurrent updates detected, using tiebreakers`);
+            
+            // Tiebreaker 1: Higher record version
+            if (remoteAgent.recordVersion > localAgent.recordVersion) {
+                console.log(`📥 Remote version wins (higher record version: ${remoteAgent.recordVersion} > ${localAgent.recordVersion})`);
+                return this.mergeAgentUpdates(localAgent, remoteAgent);
+            } else if (localAgent.recordVersion > remoteAgent.recordVersion) {
+                console.log(`✅ Local version wins (higher record version: ${localAgent.recordVersion} > ${remoteAgent.recordVersion})`);
+                return localAgent;
+            }
+            
+            // Tiebreaker 2: Most recent timestamp
+            if (new Date(remoteAgent.lastModified) > new Date(localAgent.lastModified)) {
+                console.log(`📥 Remote version wins (more recent: ${remoteAgent.lastModified})`);
+                return this.mergeAgentUpdates(localAgent, remoteAgent);
+            } else if (new Date(localAgent.lastModified) > new Date(remoteAgent.lastModified)) {
+                console.log(`✅ Local version wins (more recent: ${localAgent.lastModified})`);
+                return localAgent;
+            }
+            
+            // Tiebreaker 3: Lexicographic node ID (deterministic)
+            if (remoteAgent.lastModifiedBy > localAgent.lastModifiedBy) {
+                console.log(`📥 Remote version wins (node ID tiebreaker: ${remoteAgent.lastModifiedBy})`);
+                return this.mergeAgentUpdates(localAgent, remoteAgent);
+            } else {
+                console.log(`✅ Local version wins (node ID tiebreaker: ${localAgent.lastModifiedBy})`);
+                return localAgent;
+            }
+        }
+    }
+
+    mergeAgentUpdates(localAgent, remoteAgent) {
+        // Create a merged version with combined history
+        const mergedAgent = { ...remoteAgent };
+        
+        // Merge vector clocks
+        mergedAgent.vectorClock = this.mergeVectorClocks(localAgent.vectorClock, remoteAgent.vectorClock);
+        
+        // Merge update history (keep both, sort by timestamp)
+        const combinedHistory = [...(localAgent.updateHistory || []), ...(remoteAgent.updateHistory || [])]
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        
+        // Remove duplicates based on version and nodeId
+        mergedAgent.updateHistory = combinedHistory.filter((item, index, arr) => {
+            return arr.findIndex(other => 
+                other.version === item.version && 
+                other.nodeId === item.nodeId
+            ) === index;
+        });
+        
+        // Update merge metadata
+        mergedAgent.lastSeen = new Date().toISOString();
+        mergedAgent.mergedAt = new Date().toISOString();
+        mergedAgent.mergedBy = this.nodeId;
+        
+        console.log(`🔀 Merged agent with ${mergedAgent.updateHistory.length} history entries`);
+        return mergedAgent;
+    }
+
+    updateAgentVersion(agentData, changes, action = 'updated') {
+        // Increment our vector clock
+        const newVectorClock = { ...agentData.vectorClock };
+        newVectorClock[this.nodeId] = (newVectorClock[this.nodeId] || 0) + 1;
+        
+        // Apply changes
+        const updatedAgent = { ...agentData, ...changes };
+        
+        // Update versioning fields
+        updatedAgent.recordVersion = agentData.recordVersion + 1;
+        updatedAgent.vectorClock = newVectorClock;
+        updatedAgent.lastModified = new Date().toISOString();
+        updatedAgent.lastModifiedBy = this.nodeId;
+        updatedAgent.lastSeen = new Date().toISOString();
+        
+        // Calculate new content hash
+        updatedAgent.contentHash = this.calculateContentHash(updatedAgent);
+        
+        // Add to update history
+        updatedAgent.updateHistory = [
+            ...(agentData.updateHistory || []),
+            {
+                version: updatedAgent.recordVersion,
+                timestamp: updatedAgent.lastModified,
+                nodeId: this.nodeId,
+                action: action,
+                contentHash: updatedAgent.contentHash,
+                changes: Object.keys(changes)
+            }
+        ];
+        
+        return updatedAgent;
     }
 
     // ===== DHT-based Agent Storage and Discovery =====
@@ -1058,15 +1451,14 @@ class P2PBeaconNode {
                 console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
                 
                 // Fetch each agent from the index
+                let discoveredCount = 0;
                 for (const agentId of indexData.agents || []) {
                     if (!this.agents.has(agentId)) {
                         const agent = await this.getAgentFromDHT(agentId);
                         if (agent && !agent.deleted) {
                             this.agents.set(agent.id, agent);
-                            console.log(`✨ Discovered agent from index: ${agent.name}`);
-                            
-                            // Save locally
-                            await this.saveAgentsToFile();
+                            console.log(`✨ Discovered agent from index: ${agent.name} (v${agent.recordVersion || 1})`);
+                            discoveredCount++;
                             
                             // Notify clients
                             this.broadcastToClients({
@@ -1075,6 +1467,12 @@ class P2PBeaconNode {
                             });
                         }
                     }
+                }
+                
+                // Batch save if we discovered any agents
+                if (discoveredCount > 0) {
+                    console.log(`💾 Saving ${discoveredCount} discovered agents locally`);
+                    await this.saveAgentsToFile();
                 }
             }
         } catch (error) {
