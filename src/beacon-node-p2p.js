@@ -653,8 +653,21 @@ class P2PBeaconNode {
                 const result = await dht.get(keyBytes);
                 
                 if (result) {
-                    // Convert result back to string and parse
-                    const resultString = Buffer.from(result).toString('utf8');
+                    let resultString;
+                    
+                    // Handle different result types
+                    if (result instanceof Uint8Array) {
+                        resultString = new TextDecoder().decode(result);
+                    } else if (result instanceof ArrayBuffer) {
+                        resultString = new TextDecoder().decode(new Uint8Array(result));
+                    } else if (Buffer.isBuffer(result)) {
+                        resultString = result.toString('utf8');
+                    } else if (Array.isArray(result)) {
+                        resultString = new TextDecoder().decode(new Uint8Array(result));
+                    } else {
+                        resultString = String(result);
+                    }
+                    
                     const indexData = JSON.parse(resultString);
                     res.json(indexData);
                 } else {
@@ -1385,15 +1398,39 @@ class P2PBeaconNode {
             const result = await dht.get(keyBytes);
             
             if (result) {
-                // Convert result back to string and parse
-                const resultString = Buffer.from(result).toString('utf8');
+                console.log(`📦 DHT result type: ${Object.prototype.toString.call(result)}, length: ${result.length}`);
+                
+                let resultString;
+                
+                // Handle different result types
+                if (result instanceof Uint8Array) {
+                    resultString = new TextDecoder().decode(result);
+                } else if (result instanceof ArrayBuffer) {
+                    resultString = new TextDecoder().decode(new Uint8Array(result));
+                } else if (Buffer.isBuffer(result)) {
+                    resultString = result.toString('utf8');
+                } else if (Array.isArray(result)) {
+                    // Convert array to Uint8Array first
+                    resultString = new TextDecoder().decode(new Uint8Array(result));
+                } else {
+                    // Fallback: try to convert to string directly
+                    console.warn(`⚠️  Unexpected DHT result type: ${typeof result}, attempting string conversion`);
+                    resultString = String(result);
+                }
+                
+                console.log(`📝 Decoded result string length: ${resultString.length}`);
+                console.log(`📝 First 100 chars: ${resultString.slice(0, 100)}`);
+                
                 const agentData = JSON.parse(resultString);
-                console.log(`✅ Found agent in DHT: ${agentData.name}`);
+                console.log(`✅ Found agent in DHT: ${agentData.name} (v${agentData.recordVersion || 'legacy'})`);
                 return agentData;
             }
+            
+            console.log(`❌ No result found in DHT for agent: ${agentId}`);
             return null;
         } catch (error) {
             console.warn(`⚠️  Failed to get agent from DHT: ${error.message}`);
+            console.warn(`⚠️  Error stack: ${error.stack}`);
             return null;
         }
     }
@@ -1445,8 +1482,24 @@ class P2PBeaconNode {
             const result = await dht.get(keyBytes);
             
             if (result) {
-                // Convert result back to string and parse
-                const resultString = Buffer.from(result).toString('utf8');
+                console.log(`📦 Index result type: ${Object.prototype.toString.call(result)}, length: ${result.length}`);
+                
+                let resultString;
+                
+                // Handle different result types
+                if (result instanceof Uint8Array) {
+                    resultString = new TextDecoder().decode(result);
+                } else if (result instanceof ArrayBuffer) {
+                    resultString = new TextDecoder().decode(new Uint8Array(result));
+                } else if (Buffer.isBuffer(result)) {
+                    resultString = result.toString('utf8');
+                } else if (Array.isArray(result)) {
+                    resultString = new TextDecoder().decode(new Uint8Array(result));
+                } else {
+                    console.warn(`⚠️  Unexpected index result type: ${typeof result}`);
+                    resultString = String(result);
+                }
+                
                 const indexData = JSON.parse(resultString);
                 console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
                 
