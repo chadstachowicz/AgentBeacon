@@ -612,10 +612,14 @@ class P2PBeaconNode {
                 const dht = this.libp2p.services.dht;
                 const indexKey = '/agents/_index';
                 
-                const result = await dht.get(new TextEncoder().encode(indexKey));
+                // Convert to Uint8Array for proper DHT handling
+                const keyBytes = new Uint8Array(Buffer.from(indexKey, 'utf8'));
+                const result = await dht.get(keyBytes);
                 
                 if (result) {
-                    const indexData = JSON.parse(new TextDecoder().decode(result));
+                    // Convert result back to string and parse
+                    const resultString = Buffer.from(result).toString('utf8');
+                    const indexData = JSON.parse(resultString);
                     res.json(indexData);
                 } else {
                     res.status(404).json({ error: 'Agent index not found in DHT' });
@@ -964,7 +968,12 @@ class P2PBeaconNode {
             const value = JSON.stringify(agentData);
             
             console.log(`🗃️  Storing agent in DHT: ${agentData.name} at key ${key}`);
-            await dht.put(new TextEncoder().encode(key), new TextEncoder().encode(value));
+            
+            // Convert to Uint8Array for proper DHT handling
+            const keyBytes = new Uint8Array(Buffer.from(key, 'utf8'));
+            const valueBytes = new Uint8Array(Buffer.from(value, 'utf8'));
+            
+            await dht.put(keyBytes, valueBytes);
             console.log(`✅ Agent stored in DHT successfully`);
         } catch (error) {
             console.warn(`⚠️  Failed to store agent in DHT: ${error.message}`);
@@ -977,10 +986,15 @@ class P2PBeaconNode {
             const key = `/agents/${agentId}`;
             
             console.log(`🔍 Looking up agent in DHT: ${agentId}`);
-            const result = await dht.get(new TextEncoder().encode(key));
+            
+            // Convert to Uint8Array for proper DHT handling
+            const keyBytes = new Uint8Array(Buffer.from(key, 'utf8'));
+            const result = await dht.get(keyBytes);
             
             if (result) {
-                const agentData = JSON.parse(new TextDecoder().decode(result));
+                // Convert result back to string and parse
+                const resultString = Buffer.from(result).toString('utf8');
+                const agentData = JSON.parse(resultString);
                 console.log(`✅ Found agent in DHT: ${agentData.name}`);
                 return agentData;
             }
@@ -1032,10 +1046,15 @@ class P2PBeaconNode {
             const indexKey = '/agents/_index';
             
             console.log(`🔍 Looking up agent index in DHT: ${indexKey}`);
-            const result = await dht.get(new TextEncoder().encode(indexKey));
+            
+            // Convert to Uint8Array for proper DHT handling
+            const keyBytes = new Uint8Array(Buffer.from(indexKey, 'utf8'));
+            const result = await dht.get(keyBytes);
             
             if (result) {
-                const indexData = JSON.parse(new TextDecoder().decode(result));
+                // Convert result back to string and parse
+                const resultString = Buffer.from(result).toString('utf8');
+                const indexData = JSON.parse(resultString);
                 console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
                 
                 // Fetch each agent from the index
@@ -1079,7 +1098,12 @@ class P2PBeaconNode {
             };
             
             console.log(`📋 Updating agent index in DHT with ${agentIds.length} agents`);
-            await dht.put(new TextEncoder().encode(indexKey), new TextEncoder().encode(JSON.stringify(indexData)));
+            
+            // Convert to Uint8Array for proper DHT handling
+            const keyBytes = new Uint8Array(Buffer.from(indexKey, 'utf8'));
+            const indexBytes = new Uint8Array(Buffer.from(JSON.stringify(indexData), 'utf8'));
+            
+            await dht.put(keyBytes, indexBytes);
             console.log(`✅ Agent index updated in DHT`);
         } catch (error) {
             console.warn(`⚠️  Failed to update agent index: ${error.message}`);
@@ -1100,7 +1124,11 @@ class P2PBeaconNode {
                 deletedBy: this.nodeId
             });
             
-            await dht.put(new TextEncoder().encode(key), new TextEncoder().encode(tombstone));
+            // Convert to Uint8Array for proper DHT handling
+            const keyBytes = new Uint8Array(Buffer.from(key, 'utf8'));
+            const tombstoneBytes = new Uint8Array(Buffer.from(tombstone, 'utf8'));
+            
+            await dht.put(keyBytes, tombstoneBytes);
             console.log(`✅ Agent tombstone stored in DHT`);
         } catch (error) {
             console.warn(`⚠️  Failed to remove agent from DHT: ${error.message}`);
