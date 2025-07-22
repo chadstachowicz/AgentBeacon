@@ -362,7 +362,8 @@ class P2PBeaconNode {
         
         // Debug: Log when peers are added/removed from pubsub
         pubsub.addEventListener('subscription-change', (evt) => {
-            console.log(`📊 Subscription change: ${evt.detail.topic}, peers: ${evt.detail.peersSubscribed.length}`);
+            const peersCount = evt.detail.peersSubscribed?.length || 0;
+            console.log(`📊 Subscription change: ${evt.detail.topic}, peers: ${peersCount}`);
         });
 
         // Periodic network sync - query DHT and sync with peers
