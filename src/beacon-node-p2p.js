@@ -12,6 +12,7 @@ import { kadDHT } from '@libp2p/kad-dht'
 import { bootstrap } from '@libp2p/bootstrap'
 import { mdns } from '@libp2p/mdns'
 import { identify } from '@libp2p/identify';
+import { multiaddr } from '@multiformats/multiaddr';
 import { create } from 'ipfs-http-client';
 import express from 'express';
 import cors from 'cors';
@@ -697,20 +698,23 @@ class P2PBeaconNode {
             });
             
             // Try each multiaddr until one works
-            for (const multiaddr of sortedMultiaddrs) {
+            for (const addr of sortedMultiaddrs) {
                 try {
                     // Ensure the multiaddr includes the peer ID
-                    let fullMultiaddr = multiaddr.toString();
-                    if (!fullMultiaddr.includes('/p2p/')) {
-                        fullMultiaddr = `${fullMultiaddr}/p2p/${peerId}`;
+                    let addrStr = addr.toString();
+                    if (!addrStr.includes('/p2p/')) {
+                        addrStr = `${addrStr}/p2p/${peerId}`;
                     }
                     
-                    console.log(`📞 Dialing: ${fullMultiaddr}`);
+                    // Create proper Multiaddr object
+                    const fullMultiaddr = multiaddr(addrStr);
+                    
+                    console.log(`📞 Dialing: ${fullMultiaddr.toString()}`);
                     await this.libp2p.dial(fullMultiaddr);
-                    console.log(`✅ Successfully connected to peer: ${peerId} via ${fullMultiaddr}`);
+                    console.log(`✅ Successfully connected to peer: ${peerId} via ${fullMultiaddr.toString()}`);
                     return;
                 } catch (dialError) {
-                    console.log(`⚠️  Failed to dial ${multiaddr.toString()}: ${dialError.message}`);
+                    console.log(`⚠️  Failed to dial ${addr.toString()}: ${dialError.message}`);
                 }
             }
             
