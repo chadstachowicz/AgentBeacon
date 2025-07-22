@@ -96,7 +96,7 @@ class P2PBeaconNode {
                 ]
             },
             transports: [tcp(), webSockets()],
-            connectionEncryption: [noise()],
+            connectionEncrypters: [noise()],
             streamMuxers: [yamux()],
             peerDiscovery: [
 
