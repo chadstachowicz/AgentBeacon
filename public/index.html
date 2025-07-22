@@ -14,11 +14,48 @@
                         accent: '#38b2ac',
                         dark: '#22223b',
                         light: '#f7fafc'
+                    },
+                    animation: {
+                        'slide-in': 'slideIn 0.5s ease-out',
+                        'fade-in': 'fadeIn 0.3s ease-in-out',
+                        'scale-in': 'scaleIn 0.3s ease-out'
+                    },
+                    keyframes: {
+                        slideIn: {
+                            '0%': { transform: 'translateY(-10px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' }
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' }
+                        },
+                        scaleIn: {
+                            '0%': { transform: 'scale(0.95)', opacity: '0' },
+                            '100%': { transform: 'scale(1)', opacity: '1' }
+                        }
                     }
                 }
             }
         }
     </script>
+    <style>
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(90, 103, 216, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(90, 103, 216, 0.6); }
+        }
+        
+        .agent-card-new {
+            animation: glow 2s ease-in-out;
+        }
+        
+        .notification-container {
+            pointer-events: none;
+        }
+        
+        .notification-container > * {
+            pointer-events: all;
+        }
+    </style>
 </head>
 <body class="bg-light min-h-screen">
     <!-- Add Modal HTML -->
@@ -216,38 +253,76 @@
             handleWebSocketMessage(data) {
                 switch (data.type) {
                     case 'agent_registered':
-                        this.addAgent(data.agent);
-                        this.addEvent(`Agent registered: ${data.agent.name}`, 'registered');
+                        this.addAgent(data.agent, 'registered');
+                        this.addEvent(`🆕 Agent registered: ${data.agent.name}`, 'registered');
+                        this.showNotification(`New agent registered: ${data.agent.name}`, 'success');
                         break;
                         
                     case 'agent_discovered':
-                        this.addAgent(data.agent);
-                        this.addEvent(`Agent discovered: ${data.agent.name}`, 'discovered');
+                        this.addAgent(data.agent, 'discovered');
+                        this.addEvent(`🔍 Agent discovered: ${data.agent.name} (v${data.agent.recordVersion || 1})`, 'discovered');
+                        this.showNotification(`Agent discovered: ${data.agent.name}`, 'info');
+                        break;
+                        
+                    case 'agent_updated':
+                        this.updateAgent(data.agent);
+                        this.addEvent(`🔄 Agent updated: ${data.agent.name} (v${data.agent.recordVersion})`, 'updated');
+                        this.showNotification(`Agent updated: ${data.agent.name}`, 'info');
+                        break;
+                        
+                    case 'agent_status_updated':
+                        this.updateAgent(data.agent);
+                        this.addEvent(`📊 Status updated: ${data.agent.name} → ${data.agent.status}`, 'status');
                         break;
                         
                     case 'agent_unregistered':
                         this.removeAgent(data.agent.id);
-                        this.addEvent(`Agent unregistered: ${data.agent.name}`, 'unregistered');
+                        this.addEvent(`❌ Agent unregistered: ${data.agent.name}`, 'unregistered');
+                        this.showNotification(`Agent unregistered: ${data.agent.name}`, 'warning');
                         break;
                         
                     default:
-                        console.log('Unknown message type:', data.type);
+                        console.log('Unknown message type:', data.type, data);
                 }
             }
 
-            addAgent(agent) {
+            addAgent(agent, animationType = 'discovered') {
                 this.agents.set(agent.id, agent);
-                this.updateAgentsList(Array.from(this.agents.values()));
+                this.updateAgentsList(Array.from(this.agents.values()), agent.id, animationType);
                 this.updateAgentCount();
+            }
+
+            updateAgent(agent) {
+                if (this.agents.has(agent.id)) {
+                    this.agents.set(agent.id, agent);
+                    this.updateAgentsList(Array.from(this.agents.values()), agent.id, 'updated');
+                    this.updateAgentCount();
+                }
             }
 
             removeAgent(agentId) {
-                this.agents.delete(agentId);
-                this.updateAgentsList(Array.from(this.agents.values()));
-                this.updateAgentCount();
+                if (this.agents.has(agentId)) {
+                    // Add removal animation
+                    const agentElement = document.querySelector(`[data-agent-id="${agentId}"]`);
+                    if (agentElement) {
+                        agentElement.style.transition = 'all 0.3s ease-out';
+                        agentElement.style.transform = 'scale(0.95)';
+                        agentElement.style.opacity = '0';
+                        
+                        setTimeout(() => {
+                            this.agents.delete(agentId);
+                            this.updateAgentsList(Array.from(this.agents.values()));
+                            this.updateAgentCount();
+                        }, 300);
+                    } else {
+                        this.agents.delete(agentId);
+                        this.updateAgentsList(Array.from(this.agents.values()));
+                        this.updateAgentCount();
+                    }
+                }
             }
 
-            updateAgentsList(agents) {
+            updateAgentsList(agents, highlightAgentId = null, animationType = null) {
                 const agentsList = document.getElementById('agentsList');
                 
                 if (agents.length === 0) {
@@ -260,19 +335,52 @@
                     return;
                 }
 
+                const getAnimationClass = (agentId) => {
+                    if (agentId === highlightAgentId) {
+                        switch (animationType) {
+                            case 'registered':
+                                return 'animate-pulse bg-green-50 border-2 border-green-200';
+                            case 'discovered':
+                                return 'animate-bounce bg-blue-50 border-2 border-blue-200';
+                            case 'updated':
+                                return 'animate-pulse bg-yellow-50 border-2 border-yellow-200';
+                            default:
+                                return '';
+                        }
+                    }
+                    return '';
+                };
+
+                const getVersionBadge = (agent) => {
+                    if (agent.recordVersion && agent.recordVersion > 1) {
+                        return `<span class="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-mono">v${agent.recordVersion}</span>`;
+                    }
+                    return '';
+                };
+
                 agentsList.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         ${agents.map(agent => `
-                            <div class="bg-gray-50 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" 
+                            <div class="bg-gray-50 rounded-lg p-6 hover:shadow-md transition-all duration-300 cursor-pointer ${getAnimationClass(agent.id)}" 
+                                 data-agent-id="${agent.id}"
                                  onclick="showAgentDetails(${JSON.stringify(agent).replace(/"/g, '&quot;')})">
                                 <div class="flex items-start justify-between">
-                                    <div>
-                                        <h3 class="text-lg font-semibold text-gray-900">${agent.name}</h3>
-                                        <div class="text-sm font-mono text-gray-500 mt-1">ID: ${agent.id}</div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="text-lg font-semibold text-gray-900">${agent.name}</h3>
+                                            ${getVersionBadge(agent)}
+                                        </div>
+                                        <div class="text-sm font-mono text-gray-500 mt-1">ID: ${agent.id.slice(0, 8)}...</div>
+                                        ${agent.lastModifiedBy && agent.lastModifiedBy !== agent.registeredBy ? 
+                                            `<div class="text-xs text-purple-600 mt-1">Modified by: ${agent.lastModifiedBy.slice(0, 8)}...</div>` : ''}
                                     </div>
-                                    <span class="px-2 py-1 text-xs font-medium rounded-full ${agent.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
-                                        ${agent.status || 'unknown'}
-                                    </span>
+                                    <div class="flex flex-col items-end gap-1">
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full ${agent.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
+                                            ${agent.status || 'unknown'}
+                                        </span>
+                                        ${agent.contentHash ? 
+                                            `<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded font-mono" title="Content Hash">${agent.contentHash.slice(0, 6)}...</span>` : ''}
+                                    </div>
                                 </div>
                                 <p class="mt-2 text-sm text-gray-600">${agent.description || ''}</p>
                                 <div class="mt-4 flex flex-wrap gap-2">
@@ -300,12 +408,28 @@
                                     </div>
                                 ` : ''}
                                 <div class="mt-4 text-xs text-gray-500">
-                                    Registered: ${new Date(agent.registeredAt).toLocaleString()}
+                                    <div>Registered: ${new Date(agent.registeredAt).toLocaleString()}</div>
+                                    ${agent.lastModified && agent.lastModified !== agent.registeredAt ? 
+                                        `<div>Modified: ${new Date(agent.lastModified).toLocaleString()}</div>` : ''}
                                 </div>
                             </div>
                         `).join('')}
                     </div>
                 `;
+
+                // Remove animation classes after animation completes
+                if (highlightAgentId && animationType) {
+                    setTimeout(() => {
+                        const element = document.querySelector(`[data-agent-id="${highlightAgentId}"]`);
+                        if (element) {
+                            element.className = element.className
+                                .replace(/animate-\w+/g, '')
+                                .replace(/bg-(green|blue|yellow)-50/g, 'bg-gray-50')
+                                .replace(/border-2 border-(green|blue|yellow)-200/g, '')
+                                .trim();
+                        }
+                    }, 2000);
+                }
             }
 
             updateStats(healthData) {
@@ -338,24 +462,90 @@
                 const eventItem = document.createElement('div');
                 
                 const typeClasses = {
-                    registered: 'bg-green-50 text-green-700',
-                    discovered: 'bg-blue-50 text-blue-700',
-                    unregistered: 'bg-red-50 text-red-700',
-                    error: 'bg-red-50 text-red-700',
-                    connected: 'bg-green-50 text-green-700',
-                    disconnected: 'bg-gray-50 text-gray-700',
-                    info: 'bg-gray-50 text-gray-700'
+                    registered: 'bg-green-50 text-green-700 border-l-4 border-green-400',
+                    discovered: 'bg-blue-50 text-blue-700 border-l-4 border-blue-400',
+                    updated: 'bg-yellow-50 text-yellow-700 border-l-4 border-yellow-400',
+                    status: 'bg-purple-50 text-purple-700 border-l-4 border-purple-400',
+                    unregistered: 'bg-red-50 text-red-700 border-l-4 border-red-400',
+                    error: 'bg-red-50 text-red-700 border-l-4 border-red-400',
+                    connected: 'bg-green-50 text-green-700 border-l-4 border-green-400',
+                    disconnected: 'bg-gray-50 text-gray-700 border-l-4 border-gray-400',
+                    info: 'bg-gray-50 text-gray-700 border-l-4 border-gray-400'
                 };
                 
-                eventItem.className = `p-3 rounded-md ${typeClasses[type] || typeClasses.info}`;
-                eventItem.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                eventItem.className = `p-3 rounded-md transition-all duration-300 ${typeClasses[type] || typeClasses.info}`;
+                eventItem.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <span class="flex-1">${message}</span>
+                        <span class="text-xs opacity-75 ml-2">${new Date().toLocaleTimeString()}</span>
+                    </div>
+                `;
                 
+                // Add with slide-in animation
+                eventItem.style.opacity = '0';
+                eventItem.style.transform = 'translateX(-10px)';
                 eventLog.appendChild(eventItem);
+                
+                requestAnimationFrame(() => {
+                    eventItem.style.opacity = '1';
+                    eventItem.style.transform = 'translateX(0)';
+                });
+                
                 eventLog.scrollTop = eventLog.scrollHeight;
                 
                 while (eventLog.children.length > 50) {
                     eventLog.removeChild(eventLog.firstChild);
                 }
+            }
+
+            showNotification(message, type = 'info') {
+                // Create notification container if it doesn't exist
+                let container = document.getElementById('notificationContainer');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.id = 'notificationContainer';
+                    container.className = 'fixed top-4 right-4 z-50 space-y-2';
+                    document.body.appendChild(container);
+                }
+
+                const notification = document.createElement('div');
+                const typeClasses = {
+                    success: 'bg-green-500 text-white',
+                    info: 'bg-blue-500 text-white',
+                    warning: 'bg-yellow-500 text-white',
+                    error: 'bg-red-500 text-white'
+                };
+
+                notification.className = `px-4 py-3 rounded-lg shadow-lg ${typeClasses[type] || typeClasses.info} transform translate-x-full transition-transform duration-300`;
+                notification.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span>${message}</span>
+                        <button onclick="this.parentElement.parentElement.remove()" class="ml-2 text-white hover:text-gray-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                `;
+
+                container.appendChild(notification);
+
+                // Animate in
+                requestAnimationFrame(() => {
+                    notification.style.transform = 'translateX(0)';
+                });
+
+                // Auto remove after 5 seconds
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.style.transform = 'translateX(full)';
+                        setTimeout(() => {
+                            if (notification.parentElement) {
+                                notification.remove();
+                            }
+                        }, 300);
+                    }
+                }, 5000);
             }
 
             clearEventLog() {
