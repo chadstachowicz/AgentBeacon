@@ -5,276 +5,238 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgentBeacon.io – The Home for Open Agents</title>
   <meta name="description" content="AgentBeacon.io – The open, decentralized registry for AI agents and tools. Discover, connect, and unleash the next generation of networked AI." />
-  <style>
-    :root {
-      --primary: #5a67d8;
-      --accent: #38b2ac;
-      --bg: #f7fafc;
-      --text: #22223b;
-      --muted: #6c757d;
-      --radius: 12px;
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#5a67d8',
+            accent: '#38b2ac',
+            muted: '#6c757d'
+          },
+          fontFamily: {
+            sans: ['Inter', 'Segoe UI', 'Arial', 'sans-serif']
+          }
+        }
+      }
     }
-    html, body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-    .hero {
-      background: linear-gradient(120deg, var(--primary) 0%, var(--accent) 100%);
-      color: #fff;
-      padding: 80px 0 60px 0;
-      text-align: center;
-    }
-    .hero h1 {
-      font-size: 3rem;
-      font-weight: 800;
-      margin-bottom: 18px;
-      letter-spacing: -2px;
-    }
-    .hero p {
-      font-size: 1.35rem;
-      font-weight: 400;
-      margin-bottom: 32px;
-      color: #e0e7ff;
-    }
-    .cta-btn {
-      background: #fff;
-      color: var(--primary);
-      border: none;
-      border-radius: var(--radius);
-      padding: 16px 36px;
-      font-size: 1.1rem;
-      font-weight: 700;
-      cursor: pointer;
-      box-shadow: 0 2px 12px rgba(90,103,216,0.08);
-      transition: background 0.2s, color 0.2s;
-      margin: 0 8px;
-    }
-    .cta-btn:hover {
-      background: var(--accent);
-      color: #fff;
-    }
-    .features {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 32px;
-      margin: 60px auto 40px auto;
-      max-width: 1100px;
-    }
-    .feature {
-      background: #fff;
-      border-radius: var(--radius);
-      box-shadow: 0 2px 16px rgba(90,103,216,0.07);
-      padding: 32px 28px;
-      flex: 1 1 300px;
-      min-width: 260px;
-      max-width: 340px;
-      text-align: left;
-    }
-    .feature h3 {
-      color: var(--primary);
-      font-size: 1.25rem;
-      margin-bottom: 10px;
-      font-weight: 700;
-    }
-    .feature p {
-      color: var(--muted);
-      font-size: 1rem;
-      margin-bottom: 0;
-    }
-    .section-title {
-      text-align: center;
-      font-size: 2rem;
-      font-weight: 700;
-      margin: 60px 0 24px 0;
-      color: var(--primary);
-    }
-    .how {
-      max-width: 900px;
-      margin: 0 auto 60px auto;
-      background: #fff;
-      border-radius: var(--radius);
-      box-shadow: 0 2px 16px rgba(90,103,216,0.07);
-      padding: 36px 28px;
-    }
-    .how-steps {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 32px;
-      justify-content: center;
-      margin-top: 24px;
-    }
-    .how-step {
-      flex: 1 1 220px;
-      min-width: 200px;
-      max-width: 260px;
-      background: var(--bg);
-      border-radius: var(--radius);
-      padding: 20px 16px;
-      text-align: center;
-      box-shadow: 0 1px 6px rgba(90,103,216,0.04);
-    }
-    .how-step span {
-      display: block;
-      font-size: 2.2rem;
-      margin-bottom: 10px;
-      color: var(--accent);
-    }
-    .how-step strong {
-      display: block;
-      margin-bottom: 6px;
-      color: var(--primary);
-      font-size: 1.1rem;
-    }
-    .footer {
-      text-align: center;
-      color: var(--muted);
-      font-size: 1rem;
-      margin: 60px 0 20px 0;
-    }
-    @media (max-width: 900px) {
-      .features { flex-direction: column; align-items: center; }
-      .how-steps { flex-direction: column; align-items: center; }
-    }
-    @media (max-width: 600px) {
-      .hero h1 { font-size: 2.1rem; }
-      .section-title { font-size: 1.3rem; }
-      .feature, .how, .how-step { padding: 18px 8px; }
-    }
-  </style>
+  </script>
 </head>
-<body>
-  <div class="hero">
-    <div style="display:flex;justify-content:center;align-items:center;gap:16px;margin-bottom:18px;">
-      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="24" cy="24" r="22" stroke="#fff" stroke-width="4" fill="url(#beacon-gradient)"/>
-        <circle cx="24" cy="24" r="8" fill="#fff" fill-opacity="0.9"/>
-        <defs>
-          <linearGradient id="beacon-gradient" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#5a67d8"/>
-            <stop offset="1" stop-color="#38b2ac"/>
-          </linearGradient>
-        </defs>
-      </svg>
-      <span style="font-size:2.2rem;font-weight:900;letter-spacing:-1px;">AgentBeacon.io</span>
-      <a href="https://github.com/chadstachowicz/AgentBeacon" target="_blank" style="margin-left:18px;display:flex;align-items:center;text-decoration:none;">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style="margin-right:6px;"><path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.36-3.37-1.36-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05A9.38 9.38 0 0 1 12 6.84c.85.004 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.07.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.58.69.48A10.01 10.01 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" fill="#fff"/></svg>
-        <span style="color:#fff;font-weight:700;font-size:1.1rem;">Open Source</span>
-      </a>
-    </div>
-    <div style="max-width:520px;margin:0 auto 32px auto;">
-      <svg width="100%" height="120" viewBox="0 0 520 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="260" cy="60" rx="240" ry="40" fill="url(#hero-bg)" fill-opacity="0.18"/>
-        <ellipse cx="260" cy="60" rx="120" ry="20" fill="url(#hero-bg2)" fill-opacity="0.25"/>
-        <defs>
-          <linearGradient id="hero-bg" x1="0" y1="0" x2="520" y2="120" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#5a67d8"/>
-            <stop offset="1" stop-color="#38b2ac"/>
-          </linearGradient>
-          <linearGradient id="hero-bg2" x1="0" y1="0" x2="520" y2="120" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#38b2ac"/>
-            <stop offset="1" stop-color="#5a67d8"/>
-          </linearGradient>
-        </defs>
-      </svg>
-    </div>
-    <p style="font-size:1.1rem;max-width:500px;margin:0 auto 18px auto;">The Home for Open Agents<br>Discover. Connect. Unleash.<br><span style="color:#e0e7ff;font-size:1rem;">AgentBeacon is <b>fully open source</b>. <a href='https://github.com/chadstachowicz/AgentBeacon' target='_blank' style='color:#fff;text-decoration:underline;font-weight:600;'>View on GitHub</a></span></p>
-    <a href="#get-started" class="cta-btn">Get Started</a>
-    <a href="https://github.com/chadstachowicz/AgentBeacon" class="cta-btn" target="_blank">GitHub</a>
-  </div>
+<body class="font-sans bg-gray-50 text-gray-800 min-h-screen">
+  <!-- Hero Section -->
+  <div class="bg-gradient-to-br from-primary to-accent text-white py-20 px-4">
+    <div class="max-w-4xl mx-auto text-center">
+      <!-- Logo and Header -->
+      <div class="relative flex justify-center items-center gap-4 mb-6">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="22" stroke="#fff" stroke-width="4" fill="url(#beacon-gradient)"/>
+          <circle cx="24" cy="24" r="8" fill="#fff" fill-opacity="0.9"/>
+          <defs>
+            <linearGradient id="beacon-gradient" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#5a67d8"/>
+              <stop offset="1" stop-color="#38b2ac"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="text-4xl font-black tracking-tight">AgentBeacon.io</span>
+        <a href="https://github.com/chadstachowicz/AgentBeacon" target="_blank" class="absolute right-0 top-0 flex items-center text-decoration-none hover:opacity-80 transition-opacity">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" class="mr-2">
+            <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.36-3.37-1.36-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05A9.38 9.38 0 0 1 12 6.84c.85.004 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.07.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.58.69.48A10.01 10.01 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" fill="#fff"/>
+          </svg>
+          <span class="text-white font-bold text-lg">Open Source</span>
+        </a>
+      </div>
 
-  <div class="features">
-    <div class="feature">
-      <div style="margin-bottom:12px;">
-        <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" stroke="#5a67d8" stroke-width="3" fill="#e0e7ff"/><path d="M18 8v8l6 6" stroke="#38b2ac" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <!-- Hero Illustration -->
+      <div class="max-w-lg mx-auto mb-8">
+        <svg width="100%" height="120" viewBox="0 0 520 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="260" cy="60" rx="240" ry="40" fill="url(#hero-bg)" fill-opacity="0.18"/>
+          <ellipse cx="260" cy="60" rx="120" ry="20" fill="url(#hero-bg2)" fill-opacity="0.25"/>
+          <defs>
+            <linearGradient id="hero-bg" x1="0" y1="0" x2="520" y2="120" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#5a67d8"/>
+              <stop offset="1" stop-color="#38b2ac"/>
+            </linearGradient>
+            <linearGradient id="hero-bg2" x1="0" y1="0" x2="520" y2="120" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#38b2ac"/>
+              <stop offset="1" stop-color="#5a67d8"/>
+            </linearGradient>
+          </defs>
+        </svg>
       </div>
-      <h3>Open & Decentralized</h3>
-      <p>Anyone can run a beacon node. Anyone can register an agent. No lock-in, no gatekeepers, no walled gardens.</p>
-    </div>
-    <div class="feature">
-      <div style="margin-bottom:12px;">
-        <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><rect x="6" y="6" width="24" height="24" rx="6" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/><path d="M12 18h12M18 12v12" stroke="#38b2ac" stroke-width="3" stroke-linecap="round"/></svg>
-      </div>
-      <h3>Interoperable</h3>
-      <p>Supports any agent, any language, any platform. Integrate with Node, Python, cloud, or edge.</p>
-    </div>
-    <div class="feature">
-      <div style="margin-bottom:12px;">
-        <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/><path d="M9 18h18M18 9v18" stroke="#38b2ac" stroke-width="3" stroke-linecap="round"/></svg>
-      </div>
-      <h3>Real-time & Global</h3>
-      <p>Agents and users see updates instantly. Beacon nodes sync worldwide for unstoppable discovery.</p>
-    </div>
-    <div class="feature">
-      <div style="margin-bottom:12px;">
-        <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><rect x="6" y="10" width="24" height="16" rx="4" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/><circle cx="18" cy="18" r="4" fill="#38b2ac"/></svg>
-      </div>
-      <h3>Beautiful Dashboard</h3>
-      <p>Modern, responsive UI for browsing, searching, and monitoring agents and the network.</p>
-    </div>
-  </div>
 
-  <div class="section-title">How It Works</div>
-  <div class="how">
-    <div class="how-steps">
-      <div class="how-step">
-        <span style="font-size:2.2rem;">
-          <svg width="32" height="32" fill="none" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" stroke="#38b2ac" stroke-width="2" fill="#e0e7ff"/><path d="M16 8v8l5 5" stroke="#5a67d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <!-- Hero Text -->
+      <p class="text-lg max-w-md mx-auto mb-5 leading-relaxed">
+        The Home for Open Agents<br>
+        Discover. Connect. Unleash.<br>
+        <span class="text-indigo-200 text-base">
+          AgentBeacon is <strong>fully open source</strong>. 
+          <a href='https://github.com/chadstachowicz/AgentBeacon' target='_blank' class='text-white underline font-semibold hover:opacity-80'>View on GitHub</a>
         </span>
-        <strong>Agents “phone home”</strong>
-        to a beacon node, sharing their “agent card” (capabilities, skills, endpoints, and more).
-      </div>
-      <div class="how-step">
-        <span style="font-size:2.2rem;">
-          <svg width="32" height="32" fill="none" viewBox="0 0 32 32"><rect x="4" y="4" width="24" height="24" rx="6" fill="#e0e7ff" stroke="#38b2ac" stroke-width="2"/><path d="M10 16h12M16 10v12" stroke="#5a67d8" stroke-width="2" stroke-linecap="round"/></svg>
-        </span>
-        <strong>Beacon nodes sync</strong>
-        with each other, forming a global, decentralized registry.
-      </div>
-      <div class="how-step">
-        <span style="font-size:2.2rem;">
-          <svg width="32" height="32" fill="none" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" stroke="#5a67d8" stroke-width="2" fill="#e0e7ff"/><path d="M8 16h16" stroke="#38b2ac" stroke-width="2" stroke-linecap="round"/></svg>
-        </span>
-        <strong>Anyone can discover</strong>
-        and connect to agents—across companies, clouds, and continents.
+      </p>
+
+      <!-- CTA Buttons -->
+      <div class="flex flex-wrap justify-center gap-4">
+        <a href="#get-started" class="bg-white text-primary px-9 py-4 rounded-xl text-lg font-bold hover:bg-accent hover:text-white transition-all duration-200 shadow-lg">Get Started</a>
+        <a href="https://github.com/chadstachowicz/AgentBeacon" class="bg-white text-primary px-9 py-4 rounded-xl text-lg font-bold hover:bg-accent hover:text-white transition-all duration-200 shadow-lg" target="_blank">GitHub</a>
       </div>
     </div>
   </div>
 
-  <div class="section-title" id="get-started">Join the Network</div>
-  <div class="how" style="text-align:center;">
-    <p><strong>Get started in minutes:</strong></p>
-    <pre style="background:#f4f4f4; color:#222; border-radius:8px; padding:16px; font-size:1.1rem; margin:18px auto; max-width:420px;">npm install -g agentbeacon
+  <!-- Features Section -->
+  <div class="py-16 px-4">
+    <div class="max-w-7xl mx-auto">
+      <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+        <div class="bg-white rounded-xl shadow-lg p-8 text-left">
+          <div class="mb-4">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="16" stroke="#5a67d8" stroke-width="3" fill="#e0e7ff"/>
+              <path d="M18 8v8l6 6" stroke="#38b2ac" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3 class="text-primary text-xl font-bold mb-3">Open & Decentralized</h3>
+          <p class="text-muted">Anyone can run a beacon node. Anyone can register an agent. No lock-in, no gatekeepers, no walled gardens.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-8 text-left">
+          <div class="mb-4">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36">
+              <rect x="6" y="6" width="24" height="24" rx="6" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/>
+              <path d="M12 18h12M18 12v12" stroke="#38b2ac" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3 class="text-primary text-xl font-bold mb-3">Interoperable</h3>
+          <p class="text-muted">Supports any agent, any language, any platform. Integrate with Node, Python, cloud, or edge.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-8 text-left">
+          <div class="mb-4">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="16" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/>
+              <path d="M9 18h18M18 9v18" stroke="#38b2ac" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3 class="text-primary text-xl font-bold mb-3">Real-time & Global</h3>
+          <p class="text-muted">Agents and users see updates instantly. Beacon nodes sync worldwide for unstoppable discovery.</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-8 text-left">
+          <div class="mb-4">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36">
+              <rect x="6" y="10" width="24" height="16" rx="4" fill="#e0e7ff" stroke="#5a67d8" stroke-width="3"/>
+              <circle cx="18" cy="18" r="4" fill="#38b2ac"/>
+            </svg>
+          </div>
+          <h3 class="text-primary text-xl font-bold mb-3">Beautiful Dashboard</h3>
+          <p class="text-muted">Modern, responsive UI for browsing, searching, and monitoring agents and the network.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How It Works Section -->
+  <div class="py-16 px-4 bg-white">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-center text-4xl font-bold mb-6 text-primary">How It Works</h2>
+      
+      <div class="bg-gray-50 rounded-xl shadow-lg p-8">
+        <div class="grid md:grid-cols-3 gap-8">
+          <div class="text-center bg-white rounded-xl p-6 shadow-sm">
+            <div class="mb-4 flex justify-center">
+              <svg width="32" height="32" fill="none" viewBox="0 0 32 32">
+                <circle cx="16" cy="16" r="15" stroke="#38b2ac" stroke-width="2" fill="#e0e7ff"/>
+                <path d="M16 8v8l5 5" stroke="#5a67d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <h4 class="font-bold text-lg text-primary mb-2">Agents "phone home"</h4>
+            <p class="text-gray-600">to a beacon node, sharing their "agent card" (capabilities, skills, endpoints, and more).</p>
+          </div>
+
+          <div class="text-center bg-white rounded-xl p-6 shadow-sm">
+            <div class="mb-4 flex justify-center">
+              <svg width="32" height="32" fill="none" viewBox="0 0 32 32">
+                <rect x="4" y="4" width="24" height="24" rx="6" fill="#e0e7ff" stroke="#38b2ac" stroke-width="2"/>
+                <path d="M10 16h12M16 10v12" stroke="#5a67d8" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h4 class="font-bold text-lg text-primary mb-2">Beacon nodes sync</h4>
+            <p class="text-gray-600">with each other, forming a global, decentralized registry.</p>
+          </div>
+
+          <div class="text-center bg-white rounded-xl p-6 shadow-sm">
+            <div class="mb-4 flex justify-center">
+              <svg width="32" height="32" fill="none" viewBox="0 0 32 32">
+                <circle cx="16" cy="16" r="15" stroke="#5a67d8" stroke-width="2" fill="#e0e7ff"/>
+                <path d="M8 16h16" stroke="#38b2ac" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h4 class="font-bold text-lg text-primary mb-2">Anyone can discover</h4>
+            <p class="text-gray-600">and connect to agents—across companies, clouds, and continents.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Get Started Section -->
+  <div class="py-16 px-4" id="get-started">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-center text-4xl font-bold mb-6 text-primary">Join the Network</h2>
+      
+      <div class="bg-white rounded-xl shadow-lg p-8 text-center">
+        <p class="text-lg font-semibold mb-6">Get started in minutes:</p>
+        
+        <div class="space-y-6">
+          <div>
+            <p class="font-semibold mb-2">Install and start a beacon node:</p>
+            <pre class="bg-gray-100 text-gray-800 rounded-lg p-4 text-lg font-mono max-w-md mx-auto overflow-x-auto">npm install -g agentbeacon
 agentbeacon start</pre>
-    <p><strong>Register your agent:</strong></p>
-    <pre style="background:#f4f4f4; color:#222; border-radius:8px; padding:16px; font-size:1.1rem; margin:18px auto; max-width:420px;">curl -X POST http://localhost:3000/register ...</pre>
-    <p><strong>Browse the dashboard:</strong></p>
-    <a href="/" class="cta-btn">Launch Demo</a>
-  </div>
+          </div>
 
-  <div class="section-title">The World’s Agents, One Click Away</div>
-  <div class="how" style="text-align:center;">
-    <h2 style="color:var(--primary); font-size:2rem; margin-bottom:10px;">AgentBeacon.io</h2>
-    <p style="font-size:1.2rem; color:var(--muted);">Open. Decentralized. Limitless.</p>
-    <div style="margin-top:24px;">
-      <a href="#get-started" class="cta-btn">Get Started</a>
-      <a href="https://github.com/your-org/agentbeacon" class="cta-btn" target="_blank">GitHub</a>
-      <a href="/docs" class="cta-btn">Docs</a>
-      <a href="https://discord.gg/yourcommunity" class="cta-btn" target="_blank">Join the Community</a>
+          <div>
+            <p class="font-semibold mb-2">Register your agent:</p>
+            <pre class="bg-gray-100 text-gray-800 rounded-lg p-4 text-lg font-mono max-w-md mx-auto overflow-x-auto">curl -X POST http://localhost:3000/register ...</pre>
+          </div>
+
+          <div>
+            <p class="font-semibold mb-4">Browse the dashboard:</p>
+            <a href="/dashboard" class="bg-primary text-white px-9 py-4 rounded-xl text-lg font-bold hover:bg-accent transition-all duration-200 shadow-lg">Launch Dashboard</a>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="footer">
-    <span style="display:inline-flex;align-items:center;gap:8px;">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="vertical-align:middle;"><path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.36-3.37-1.36-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05A9.38 9.38 0 0 1 12 6.84c.85.004 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.07.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.58.69.48A10.01 10.01 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" fill="#5a67d8"/></svg>
-      <a href="https://github.com/chadstachowicz/AgentBeacon" target="_blank" style="color:#5a67d8;font-weight:700;text-decoration:underline;">Open Source on GitHub</a>
-    </span><br>
-    Built by and for the agent ecosystem.<br>
-    No lock-in. No limits. Just possibility.
+  <!-- Final CTA Section -->
+  <div class="py-16 px-4 bg-gradient-to-br from-primary to-accent text-white">
+    <div class="max-w-4xl mx-auto text-center">
+      <h2 class="text-4xl font-bold mb-4">The World's Agents, One Click Away</h2>
+      <h3 class="text-3xl font-bold mb-2">AgentBeacon.io</h3>
+      <p class="text-xl text-indigo-200 mb-8">Open. Decentralized. Limitless.</p>
+      
+             <div class="flex flex-wrap justify-center gap-4">
+         <a href="#get-started" class="bg-white text-primary px-8 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all duration-200 shadow-lg">Get Started</a>
+         <a href="https://github.com/chadstachowicz/AgentBeacon" class="bg-white text-primary px-8 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all duration-200 shadow-lg" target="_blank">GitHub</a>
+         <a href="/dashboard" class="bg-white text-primary px-8 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all duration-200 shadow-lg">Dashboard</a>
+       </div>
+    </div>
   </div>
+
+  <!-- Footer -->
+  <footer class="py-12 px-4 bg-gray-100 text-center">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex justify-center items-center gap-2 mb-4">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.36-3.37-1.36-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05A9.38 9.38 0 0 1 12 6.84c.85.004 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.07.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.58.69.48A10.01 10.01 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" fill="#5a67d8"/>
+        </svg>
+        <a href="https://github.com/chadstachowicz/AgentBeacon" target="_blank" class="text-primary font-bold underline hover:opacity-80">Open Source on GitHub</a>
+      </div>
+      <p class="text-muted">
+        Built by and for the agent ecosystem.<br>
+        No lock-in. No limits. Just possibility.
+      </p>
+    </div>
+  </footer>
 </body>
 </html> 
