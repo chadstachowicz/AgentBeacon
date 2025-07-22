@@ -256,7 +256,8 @@ class P2PBeaconNode {
             description: agentData.description || '',
             capabilities: agentData.capabilities,
             version: agentData.version || '1.0.0',
-            endpoint: agentData.endpoint || agentData.url || null,
+            url: agentData.url || agentData.endpoint || null,
+            endpoint: agentData.url || agentData.endpoint || null, // Keep both for compatibility
             metadata: agentData.metadata || {},
             tags: agentData.tags || [],
             registeredAt: new Date().toISOString(),

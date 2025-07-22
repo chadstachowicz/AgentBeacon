@@ -224,10 +224,14 @@ class BeaconNode {
             description: agentData.description || '',
             capabilities: agentData.capabilities,
             version: agentData.version || '1.0.0',
-            endpoint: agentData.endpoint || null,
+            url: agentData.url || agentData.endpoint || null,
+            endpoint: agentData.url || agentData.endpoint || null, // Keep both for compatibility
+            metadata: agentData.metadata || {},
+            tags: agentData.tags || [],
             registeredAt: new Date().toISOString(),
             registeredBy: this.nodeId,
-            lastSeen: new Date().toISOString()
+            lastSeen: new Date().toISOString(),
+            status: 'online'
         };
 
         // Store locally

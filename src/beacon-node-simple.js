@@ -8,7 +8,7 @@ import { create } from 'ipfs-http-client';
 class SimpleBeaconNode {
     constructor(config = {}) {
         this.config = {
-            port: config.port || 3000,
+            port: process.env.PORT || config.port || 3000,
             ipfsEndpoint: config.ipfsEndpoint || 'http://localhost:5001',
             ...config
         };
@@ -32,11 +32,13 @@ class SimpleBeaconNode {
             this.setupAPI();
             
             // Start the server
-            const port = process.env.PORT ? parseInt(process.env.PORT) : this.config.port;
-            this.server = this.app.listen(port, () => {
-                console.log(`📡 Beacon Node running on port ${port}`);
+            this.server = this.app.listen(this.config.port, () => {
+                console.log(`📡 Beacon Node running on port ${this.config.port}`);
                 console.log(`🔗 IPFS connected to ${this.config.ipfsEndpoint}`);
-                console.log(`🌐 Web Dashboard: http://localhost:${port}`);
+                console.log(`🌐 Web Dashboard: http://localhost:${this.config.port}/dashboard`);
+                
+                // Setup WebSocket for real-time updates after server is created
+                this.setupWebSocket();
             });
             
             console.log('✅ Beacon Node started successfully!');
@@ -178,7 +180,8 @@ class SimpleBeaconNode {
             description: agentData.description || '',
             capabilities: agentData.capabilities,
             version: agentData.version || '1.0.0',
-            endpoint: agentData.endpoint || null,
+            url: agentData.url || agentData.endpoint || null,
+            endpoint: agentData.url || agentData.endpoint || null, // Keep both for compatibility
             metadata: agentData.metadata || {},
             tags: agentData.tags || [],
             registeredAt: new Date().toISOString(),
@@ -265,7 +268,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         .version('1.0.0');
 
     program
-        .option('-p, --port <port>', 'HTTP port', '3000')
+        .option('-p, --port <port>', 'HTTP port (can also use PORT environment variable)', process.env.PORT || '3000')
         .option('--ipfs-endpoint <url>', 'IPFS endpoint', 'http://localhost:5001');
 
     program.parse();
