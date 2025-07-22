@@ -128,6 +128,64 @@ class P2PBeaconNode {
         console.log(`✅ Restored ${restoredCount}/${this.agents.size} agents to DHT`);
     }
 
+    async performInitialSync() {
+        try {
+            console.log('🚀 Starting comprehensive initial sync...');
+            
+            // Check if we have any connections
+            const connections = this.libp2p.getConnections();
+            if (connections.length === 0) {
+                console.log('⚠️  No connections available for initial sync');
+                return;
+            }
+            
+            console.log(`🔗 Found ${connections.length} connections for initial sync`);
+            
+            // Step 1: Request comprehensive agent lists from all peers
+            console.log('📡 Requesting full agent sync from all peers...');
+            for (const connection of connections) {
+                try {
+                    const request = JSON.stringify({
+                        type: 'full_agent_sync_request',
+                        nodeId: this.nodeId,
+                        timestamp: Date.now(),
+                        isInitialSync: true
+                    });
+                    
+                    const pubsub = this.libp2p.services.pubsub;
+                    await pubsub.publish('agent-sync', new TextEncoder().encode(request));
+                } catch (error) {
+                    console.warn(`⚠️  Failed to send initial sync request: ${error.message}`);
+                }
+            }
+            
+            // Step 2: Wait a moment for responses
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // Step 3: Crawl the DHT for any missed agents
+            console.log('🕷️  Crawling DHT for additional agents...');
+            await this.crawlDHTForAgents();
+            
+            // Step 4: Try to discover the agent index
+            console.log('📋 Looking for agent index...');
+            await this.discoverAgentIndex();
+            
+            // Step 5: Update our own index if we have agents
+            if (this.agents.size > 0) {
+                console.log('📋 Updating our agent index...');
+                await this.updateAgentIndex();
+            }
+            
+            // Step 6: Save everything locally
+            await this.saveAgentsToFile();
+            
+            console.log(`✅ Initial sync completed - have ${this.agents.size} agents total`);
+            
+        } catch (error) {
+            console.error(`❌ Error during initial sync: ${error.message}`);
+        }
+    }
+
     async start() {
         console.log('🚀 Starting P2P Beacon Node...');
         console.log(`Node ID: ${this.nodeId}`);
@@ -161,6 +219,12 @@ class P2PBeaconNode {
             
             // Setup pub/sub handlers
             this.setupPubSub();
+            
+            // Trigger initial comprehensive sync after everything is set up
+            setTimeout(async () => {
+                console.log('🔄 Performing initial network discovery...');
+                await this.performInitialSync();
+            }, 5000); // Wait 5 seconds for connections to establish
             
             console.log('✅ P2P Beacon Node started successfully!');
             
@@ -523,6 +587,71 @@ class P2PBeaconNode {
                 res.status(500).json({ error: error.message });
             }
         });
+
+        // Manual DHT discovery endpoint
+        this.app.post('/dht/discover', async (req, res) => {
+            try {
+                console.log('🔍 Manual DHT discovery triggered');
+                await this.crawlDHTForAgents();
+                await this.discoverAgentIndex();
+                await this.saveAgentsToFile();
+                
+                res.json({ 
+                    success: true, 
+                    message: 'DHT discovery completed',
+                    agentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Get agent index from DHT
+        this.app.get('/dht/index', async (req, res) => {
+            try {
+                const dht = this.libp2p.services.dht;
+                const indexKey = '/agents/_index';
+                
+                const result = await dht.get(new TextEncoder().encode(indexKey));
+                
+                if (result) {
+                    const indexData = JSON.parse(new TextDecoder().decode(result));
+                    res.json(indexData);
+                } else {
+                    res.status(404).json({ error: 'Agent index not found in DHT' });
+                }
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // Update agent index manually
+        this.app.post('/dht/update-index', async (req, res) => {
+            try {
+                await this.updateAgentIndex();
+                res.json({ 
+                    success: true, 
+                    message: 'Agent index updated',
+                    agentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Trigger full initial sync manually
+        this.app.post('/initial-sync', async (req, res) => {
+            try {
+                await this.performInitialSync();
+                res.json({ 
+                    success: true, 
+                    message: 'Initial sync completed',
+                    agentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
     }
 
     setupWebSocket() {
@@ -570,6 +699,14 @@ class P2PBeaconNode {
         setInterval(async () => {
             await this.saveAgentsToFile();
         }, 300000); // Every 5 minutes
+
+        // Periodic agent index update (less frequent)
+        setInterval(async () => {
+            if (this.agents.size > 0) {
+                console.log('📋 Updating agent index...');
+                await this.updateAgentIndex();
+            }
+        }, 600000); // Every 10 minutes
 
         // Send a heartbeat message every minute to keep mesh alive (only if peers are subscribed)
         setInterval(async () => {
@@ -638,6 +775,9 @@ class P2PBeaconNode {
 
         // Store in DHT for distributed discovery
         await this.storeAgentInDHT(fullAgentData);
+
+        // Update the agent index in DHT
+        await this.updateAgentIndex();
 
         // Also broadcast to network for immediate notification
         await this.broadcastAgentRegistration(fullAgentData);
@@ -751,9 +891,9 @@ class P2PBeaconNode {
                 return; // Ignore our own messages
             }
             
-            if (message.type === 'agent_list_request') {
+            if (message.type === 'agent_list_request' || message.type === 'full_agent_sync_request') {
                 // Someone is requesting our agent list
-                console.log(`📤 Sending agent list to requesting node: ${message.nodeId}`);
+                console.log(`📤 Sending agent list to requesting node: ${message.nodeId} (type: ${message.type})`);
                 
                 const agents = Array.from(this.agents.values()).map(agent => ({
                     id: agent.id,
@@ -764,17 +904,19 @@ class P2PBeaconNode {
                 }));
                 
                 const response = JSON.stringify({
-                    type: 'agent_list_response',
+                    type: message.type === 'full_agent_sync_request' ? 'full_agent_sync_response' : 'agent_list_response',
                     nodeId: this.nodeId,
                     requestingNode: message.nodeId,
                     agents: agents,
+                    totalAgents: agents.length,
+                    includesDHTCrawl: message.type === 'full_agent_sync_request',
                     timestamp: Date.now()
                 });
                 
                 const pubsub = this.libp2p.services.pubsub;
                 await pubsub.publish('agent-sync', new TextEncoder().encode(response));
                 
-            } else if (message.type === 'agent_list_response' && message.requestingNode === this.nodeId) {
+            } else if ((message.type === 'agent_list_response' || message.type === 'full_agent_sync_response') && message.requestingNode === this.nodeId) {
                 // We received a response to our agent list request
                 console.log(`📥 Received agent list from node: ${message.nodeId} with ${message.agents.length} agents`);
                 
@@ -849,24 +991,98 @@ class P2PBeaconNode {
         }
     }
 
-    async discoverAgentsFromDHT() {
+    async crawlDHTForAgents() {
+        try {
+            console.log(`🕷️  Starting DHT crawl for agents...`);
+            let discoveredCount = 0;
+            
+            // Strategy 1: Request agent index from connected peers
+            const connections = this.libp2p.getConnections();
+            for (const connection of connections) {
+                try {
+                    // Send a more comprehensive sync request
+                    const request = JSON.stringify({
+                        type: 'full_agent_sync_request',
+                        nodeId: this.nodeId,
+                        timestamp: Date.now(),
+                        requestDHTCrawl: true
+                    });
+                    
+                    const pubsub = this.libp2p.services.pubsub;
+                    await pubsub.publish('agent-sync', new TextEncoder().encode(request));
+                } catch (error) {
+                    console.warn(`⚠️  Failed to send DHT crawl request: ${error.message}`);
+                }
+            }
+            
+            // Strategy 2: Try to discover agent index key
+            await this.discoverAgentIndex();
+            
+            console.log(`🕷️  DHT crawl completed, discovered ${discoveredCount} new agents`);
+            return discoveredCount;
+        } catch (error) {
+            console.warn(`⚠️  Error during DHT crawl: ${error.message}`);
+            return 0;
+        }
+    }
+
+    async discoverAgentIndex() {
         try {
             const dht = this.libp2p.services.dht;
-            const discoveredAgents = new Map();
+            const indexKey = '/agents/_index';
             
-            console.log(`🔍 Discovering agents from DHT...`);
+            console.log(`🔍 Looking up agent index in DHT: ${indexKey}`);
+            const result = await dht.get(new TextEncoder().encode(indexKey));
             
-            // Query for agents by searching for keys with prefix `/agents/`
-            // Note: This is a simplified approach. In production, you might want
-            // to maintain an index of agent IDs
-            
-            // For now, we'll use a different approach - periodically sync known agents
-            // and let the network propagate agent discoveries
-            
-            return discoveredAgents;
+            if (result) {
+                const indexData = JSON.parse(new TextDecoder().decode(result));
+                console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
+                
+                // Fetch each agent from the index
+                for (const agentId of indexData.agents || []) {
+                    if (!this.agents.has(agentId)) {
+                        const agent = await this.getAgentFromDHT(agentId);
+                        if (agent && !agent.deleted) {
+                            this.agents.set(agent.id, agent);
+                            console.log(`✨ Discovered agent from index: ${agent.name}`);
+                            
+                            // Save locally
+                            await this.saveAgentsToFile();
+                            
+                            // Notify clients
+                            this.broadcastToClients({
+                                type: 'agent_discovered',
+                                agent: agent
+                            });
+                        }
+                    }
+                }
+            }
         } catch (error) {
-            console.warn(`⚠️  Failed to discover agents from DHT: ${error.message}`);
-            return new Map();
+            console.log(`🔍 No agent index found in DHT (this is normal for new networks)`);
+        }
+    }
+
+    async updateAgentIndex() {
+        try {
+            const dht = this.libp2p.services.dht;
+            const indexKey = '/agents/_index';
+            
+            // Get current agent IDs
+            const agentIds = Array.from(this.agents.keys());
+            
+            const indexData = {
+                lastUpdated: new Date().toISOString(),
+                updatedBy: this.nodeId,
+                totalAgents: agentIds.length,
+                agents: agentIds
+            };
+            
+            console.log(`📋 Updating agent index in DHT with ${agentIds.length} agents`);
+            await dht.put(new TextEncoder().encode(indexKey), new TextEncoder().encode(JSON.stringify(indexData)));
+            console.log(`✅ Agent index updated in DHT`);
+        } catch (error) {
+            console.warn(`⚠️  Failed to update agent index: ${error.message}`);
         }
     }
 
@@ -976,7 +1192,7 @@ class P2PBeaconNode {
                 console.log(`📡 After connection attempts: ${newConnections.length} peers connected`);
             }
             
-            // Send sync requests to connected peers
+            // Send sync requests to connected peers (for immediate agent lists)
             const finalConnections = this.libp2p.getConnections();
             for (const connection of finalConnections) {
                 try {
@@ -999,6 +1215,12 @@ class P2PBeaconNode {
                 } catch (error) {
                     console.warn(`⚠️  Failed to request agent list from peer: ${error.message}`);
                 }
+            }
+            
+            // Also crawl the DHT for agents we might have missed
+            if (finalConnections.length > 0) {
+                console.log(`🕷️  Crawling DHT for agents...`);
+                await this.crawlDHTForAgents();
             }
         } catch (error) {
             console.error(`❌ Error in syncAgentsFromNetwork: ${error.message}`);
