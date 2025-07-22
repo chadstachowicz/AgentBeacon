@@ -148,56 +148,111 @@ class P2PBeaconNode {
 
     async performInitialSync() {
         try {
-            console.log('🚀 Starting comprehensive initial sync...');
+            const isNewNode = this.agents.size === 0;
+            console.log(`🚀 Starting ${isNewNode ? 'NEW NODE' : 'comprehensive'} initial sync...`);
+            console.log(`📊 Current agent count: ${this.agents.size}`);
             
             // Check if we have any connections
             const connections = this.libp2p.getConnections();
             if (connections.length === 0) {
                 console.log('⚠️  No connections available for initial sync');
+                if (isNewNode) {
+                    console.log('📋 New node with no connections - will sync when peers connect');
+                }
                 return;
             }
             
             console.log(`🔗 Found ${connections.length} connections for initial sync`);
             
-            // Step 1: Request comprehensive agent lists from all peers
-            console.log('📡 Requesting full agent sync from all peers...');
-            for (const connection of connections) {
-                try {
-                    const request = JSON.stringify({
-                        type: 'full_agent_sync_request',
-                        nodeId: this.nodeId,
-                        timestamp: Date.now(),
-                        isInitialSync: true
-                    });
-                    
-                    const pubsub = this.libp2p.services.pubsub;
-                    await pubsub.publish('agent-sync', new TextEncoder().encode(request));
-                } catch (error) {
-                    console.warn(`⚠️  Failed to send initial sync request: ${error.message}`);
+            if (isNewNode) {
+                console.log('🆕 NEW NODE BOOTSTRAP: Aggressively requesting all data from network...');
+                
+                // Step 1: Send multiple sync requests with higher priority
+                for (const connection of connections) {
+                    try {
+                        const requests = [
+                            {
+                                type: 'full_agent_sync_request',
+                                nodeId: this.nodeId,
+                                timestamp: Date.now(),
+                                isInitialSync: true,
+                                isNewNode: true,
+                                priority: 'high'
+                            },
+                            {
+                                type: 'agent_list_request',
+                                nodeId: this.nodeId,
+                                timestamp: Date.now(),
+                                isNewNode: true,
+                                requestAll: true
+                            }
+                        ];
+                        
+                        const pubsub = this.libp2p.services.pubsub;
+                        for (const request of requests) {
+                            await pubsub.publish('agent-sync', new TextEncoder().encode(JSON.stringify(request)));
+                        }
+                        
+                        console.log(`📡 Sent high-priority bootstrap requests to ${connection.remotePeer.toString()}`);
+                    } catch (error) {
+                        console.warn(`⚠️  Failed to send bootstrap request: ${error.message}`);
+                    }
                 }
+                
+                // Step 2: Longer wait for new nodes to collect all responses
+                console.log('⏳ Waiting for bootstrap responses...');
+                await new Promise(resolve => setTimeout(resolve, 8000));
+                
+                // Step 3: Aggressive DHT crawling for new nodes
+                console.log('🕷️  NEW NODE: Aggressive DHT crawling...');
+                await this.crawlDHTForAgents();
+                await this.discoverAgentIndex();
+                
+                // Step 4: Final fallback - try direct DHT queries for common patterns
+                if (this.agents.size === 0) {
+                    console.log('🔍 NEW NODE: No agents found, trying DHT fallback patterns...');
+                    await this.tryDHTFallbackSearch();
+                }
+                
+            } else {
+                // Existing node - normal sync
+                console.log('📡 Requesting agent updates from peers...');
+                for (const connection of connections) {
+                    try {
+                        const request = JSON.stringify({
+                            type: 'agent_list_request',
+                            nodeId: this.nodeId,
+                            timestamp: Date.now(),
+                            isInitialSync: true,
+                            currentAgentCount: this.agents.size
+                        });
+                        
+                        const pubsub = this.libp2p.services.pubsub;
+                        await pubsub.publish('agent-sync', new TextEncoder().encode(request));
+                    } catch (error) {
+                        console.warn(`⚠️  Failed to send sync request: ${error.message}`);
+                    }
+                }
+                
+                // Shorter wait for existing nodes
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                await this.crawlDHTForAgents();
+                await this.discoverAgentIndex();
             }
             
-            // Step 2: Wait a moment for responses
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            // Step 3: Crawl the DHT for any missed agents
-            console.log('🕷️  Crawling DHT for additional agents...');
-            await this.crawlDHTForAgents();
-            
-            // Step 4: Try to discover the agent index
-            console.log('📋 Looking for agent index...');
-            await this.discoverAgentIndex();
-            
-            // Step 5: Update our own index if we have agents
+            // Update our own index if we have agents
             if (this.agents.size > 0) {
                 console.log('📋 Updating our agent index...');
                 await this.updateAgentIndex();
             }
             
-            // Step 6: Save everything locally
+            // Save everything locally
             await this.saveAgentsToFile();
             
-            console.log(`✅ Initial sync completed - have ${this.agents.size} agents total`);
+            const resultMsg = isNewNode 
+                ? `✅ NEW NODE bootstrap completed - discovered ${this.agents.size} agents` 
+                : `✅ Initial sync completed - have ${this.agents.size} agents total`;
+            console.log(resultMsg);
             
         } catch (error) {
             console.error(`❌ Error during initial sync: ${error.message}`);
@@ -1217,56 +1272,75 @@ class P2PBeaconNode {
                 
                 const agentsToRequest = [];
                 let updatesNeeded = 0;
+                const isNewNode = this.agents.size === 0;
                 
-                for (const remoteAgentInfo of message.agents) {
-                    if (!this.agents.has(remoteAgentInfo.id)) {
-                        // New agent discovered
-                        console.log(`🆕 New agent discovered: ${remoteAgentInfo.name} (v${remoteAgentInfo.recordVersion})`);
+                if (isNewNode && message.agents.length > 0) {
+                    // New node with no agents - request everything
+                    console.log(`🆕 New node detected, requesting ALL ${message.agents.length} agents from ${message.nodeId}`);
+                    for (const remoteAgentInfo of message.agents) {
                         agentsToRequest.push(remoteAgentInfo.id);
-                    } else {
-                        // Agent exists locally - compare versions efficiently
-                        const localAgent = this.agents.get(remoteAgentInfo.id);
-                        
-                        // Quick hash comparison first
-                        if (localAgent.contentHash !== remoteAgentInfo.contentHash) {
-                            console.log(`🔍 Content difference detected for agent: ${localAgent.name}`);
-                            console.log(`   Local: v${localAgent.recordVersion} (${localAgent.contentHash?.slice(0, 8) || 'unknown'}...)`);
-                            console.log(`   Remote: v${remoteAgentInfo.recordVersion} (${remoteAgentInfo.contentHash?.slice(0, 8) || 'unknown'}...)`);
-                            
-                            // Compare vector clocks to determine if we need the remote version
-                            const localClock = localAgent.vectorClock || { [this.nodeId]: 1 };
-                            const remoteClock = remoteAgentInfo.vectorClock || { [message.nodeId]: 1 };
-                            const clockComparison = this.compareVectorClocks(localClock, remoteClock);
-                            
-                            if (clockComparison === -1) {
-                                // Remote is newer - request it
-                                console.log(`📥 Remote version is newer, requesting agent: ${remoteAgentInfo.name}`);
-                                agentsToRequest.push(remoteAgentInfo.id);
-                                updatesNeeded++;
-                            } else if (clockComparison === 0) {
-                                // Concurrent updates - need to fetch and resolve
-                                console.log(`⚡ Concurrent updates detected, requesting for conflict resolution: ${remoteAgentInfo.name}`);
-                                agentsToRequest.push(remoteAgentInfo.id);
-                                updatesNeeded++;
-                            } else {
-                                // Local is newer - offer to send our version
-                                console.log(`📤 Local version is newer, offering update to peer: ${remoteAgentInfo.name}`);
-                                await this.offerAgentUpdate(message.nodeId, localAgent);
-                            }
+                        console.log(`📥 Queuing agent: ${remoteAgentInfo.name} (v${remoteAgentInfo.recordVersion})`);
+                    }
+                } else {
+                    // Existing node - do smart comparison
+                    for (const remoteAgentInfo of message.agents) {
+                        if (!this.agents.has(remoteAgentInfo.id)) {
+                            // New agent discovered
+                            console.log(`🆕 New agent discovered: ${remoteAgentInfo.name} (v${remoteAgentInfo.recordVersion})`);
+                            agentsToRequest.push(remoteAgentInfo.id);
                         } else {
-                            // Same content hash - just update lastSeen
-                            localAgent.lastSeen = new Date().toISOString();
-                            console.log(`✅ Agent ${localAgent.name} is in sync (${localAgent.contentHash?.slice(0, 8)})`);
+                            // Agent exists locally - compare versions efficiently
+                            const localAgent = this.agents.get(remoteAgentInfo.id);
+                            
+                            // Quick hash comparison first
+                            if (localAgent.contentHash !== remoteAgentInfo.contentHash) {
+                                console.log(`🔍 Content difference detected for agent: ${localAgent.name}`);
+                                console.log(`   Local: v${localAgent.recordVersion} (${localAgent.contentHash?.slice(0, 8) || 'unknown'}...)`);
+                                console.log(`   Remote: v${remoteAgentInfo.recordVersion} (${remoteAgentInfo.contentHash?.slice(0, 8) || 'unknown'}...)`);
+                                
+                                // Compare vector clocks to determine if we need the remote version
+                                const localClock = localAgent.vectorClock || { [this.nodeId]: 1 };
+                                const remoteClock = remoteAgentInfo.vectorClock || { [message.nodeId]: 1 };
+                                const clockComparison = this.compareVectorClocks(localClock, remoteClock);
+                                
+                                if (clockComparison === -1) {
+                                    // Remote is newer - request it
+                                    console.log(`📥 Remote version is newer, requesting agent: ${remoteAgentInfo.name}`);
+                                    agentsToRequest.push(remoteAgentInfo.id);
+                                    updatesNeeded++;
+                                } else if (clockComparison === 0) {
+                                    // Concurrent updates - need to fetch and resolve
+                                    console.log(`⚡ Concurrent updates detected, requesting for conflict resolution: ${remoteAgentInfo.name}`);
+                                    agentsToRequest.push(remoteAgentInfo.id);
+                                    updatesNeeded++;
+                                } else {
+                                    // Local is newer - offer to send our version (only if we're not a new node)
+                                    console.log(`📤 Local version is newer, offering update to peer: ${remoteAgentInfo.name}`);
+                                    await this.offerAgentUpdate(message.nodeId, localAgent);
+                                }
+                            } else {
+                                // Same content hash - just update lastSeen
+                                localAgent.lastSeen = new Date().toISOString();
+                                console.log(`✅ Agent ${localAgent.name} is in sync (${localAgent.contentHash?.slice(0, 8)})`);
+                            }
                         }
                     }
                 }
                 
                 // Batch request agents we actually need
                 if (agentsToRequest.length > 0) {
-                    console.log(`📋 Requesting ${agentsToRequest.length} agents from ${message.nodeId} (${updatesNeeded} updates, ${agentsToRequest.length - updatesNeeded} new)`);
+                    if (isNewNode) {
+                        console.log(`📋 New node requesting ALL ${agentsToRequest.length} agents from ${message.nodeId}`);
+                    } else {
+                        console.log(`📋 Requesting ${agentsToRequest.length} agents from ${message.nodeId} (${updatesNeeded} updates, ${agentsToRequest.length - updatesNeeded} new)`);
+                    }
                     await this.requestSpecificAgents(message.nodeId, agentsToRequest);
                 } else {
-                    console.log(`✅ All agents are in sync with ${message.nodeId}`);
+                    if (isNewNode) {
+                        console.log(`📭 New node found no agents to sync from ${message.nodeId}`);
+                    } else {
+                        console.log(`✅ All agents are in sync with ${message.nodeId}`);
+                    }
                 }
                 
             } else if (message.type === 'agent_update_offer') {
@@ -1601,6 +1675,73 @@ class P2PBeaconNode {
         }
     }
 
+    async tryDHTFallbackSearch() {
+        try {
+            console.log('🔍 Trying DHT fallback search patterns...');
+            const dht = this.libp2p.services.dht;
+            
+            // Try common agent key patterns
+            const commonPatterns = [
+                '/agents/_index',
+                '/agents/_all',
+                '/agents/registry',
+                '/agents/list'
+            ];
+            
+            for (const pattern of commonPatterns) {
+                try {
+                    console.log(`🔍 Trying DHT pattern: ${pattern}`);
+                    const keyBytes = new Uint8Array(Buffer.from(pattern, 'utf8'));
+                    const resultIterator = await dht.get(keyBytes);
+                    
+                    if (resultIterator && typeof resultIterator[Symbol.asyncIterator] === 'function') {
+                        for await (const record of resultIterator) {
+                            if (record && record.value) {
+                                try {
+                                    let resultString;
+                                    if (record.value instanceof Uint8Array) {
+                                        resultString = new TextDecoder().decode(record.value);
+                                    } else {
+                                        resultString = String(record.value);
+                                    }
+                                    
+                                    const data = JSON.parse(resultString);
+                                    if (data.agents && Array.isArray(data.agents)) {
+                                        console.log(`✨ Found agent data in pattern ${pattern}: ${data.agents.length} agents`);
+                                        
+                                        // Process found agents
+                                        for (const agentId of data.agents) {
+                                            const agent = await this.getAgentFromDHT(agentId);
+                                            if (agent && !agent.deleted) {
+                                                this.agents.set(agent.id, agent);
+                                                console.log(`✨ Fallback discovered: ${agent.name}`);
+                                            }
+                                        }
+                                        
+                                        if (this.agents.size > 0) {
+                                            console.log(`✅ Fallback search successful - found ${this.agents.size} agents`);
+                                            return;
+                                        }
+                                    }
+                                } catch (parseError) {
+                                    // Ignore parsing errors and try next pattern
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                } catch (patternError) {
+                    // Pattern not found, try next
+                    continue;
+                }
+            }
+            
+            console.log('🔍 No agents found in DHT fallback search');
+        } catch (error) {
+            console.log(`🔍 DHT fallback search error: ${error.message}`);
+        }
+    }
+
     async discoverAgentIndex() {
         try {
             const dht = this.libp2p.services.dht;
@@ -1784,6 +1925,12 @@ class P2PBeaconNode {
 
     async offerAgentUpdate(targetNodeId, agent) {
         try {
+            // Don't offer updates if we have very few agents (probably a new node ourselves)
+            if (this.agents.size < 2) {
+                console.log(`⏸️  Skipping update offer - we only have ${this.agents.size} agent(s), probably not authoritative`);
+                return;
+            }
+            
             console.log(`📤 Offering agent update to ${targetNodeId}: ${agent.name} (v${agent.recordVersion})`);
             
             const offer = JSON.stringify({
@@ -1796,6 +1943,7 @@ class P2PBeaconNode {
                 vectorClock: agent.vectorClock,
                 contentHash: agent.contentHash,
                 lastModified: agent.lastModified,
+                ourAgentCount: this.agents.size, // Help target decide if we're authoritative
                 timestamp: Date.now()
             });
             
@@ -1831,6 +1979,17 @@ class P2PBeaconNode {
                 return; // Not meant for us
             }
             
+            const isNewNode = this.agents.size === 0;
+            const isSmallNode = this.agents.size < (message.ourAgentCount || 1);
+            
+            if (isNewNode || isSmallNode) {
+                // We're a new/small node - accept all offers to bootstrap
+                console.log(`🆕 New/small node (${this.agents.size} vs ${message.ourAgentCount || 'unknown'} agents) - accepting all offers`);
+                console.log(`✅ Auto-accepting update offer for agent: ${message.agentName} (v${message.recordVersion})`);
+                await this.requestSpecificAgents(message.nodeId, [message.agentId]);
+                return;
+            }
+            
             const localAgent = this.agents.get(message.agentId);
             
             if (!localAgent) {
@@ -1850,9 +2009,14 @@ class P2PBeaconNode {
                 console.log(`✅ Accepting update offer for ${message.agentName}: remote v${message.recordVersion} vs local v${localAgent.recordVersion}`);
                 await this.requestSpecificAgents(message.nodeId, [message.agentId]);
             } else {
-                // Local is newer - decline and offer our version back
-                console.log(`❌ Declining update offer for ${message.agentName}: local v${localAgent.recordVersion} is newer than remote v${message.recordVersion}`);
-                await this.offerAgentUpdate(message.nodeId, localAgent);
+                // Local is newer - decline and offer our version back (only if we're authoritative)
+                if (this.agents.size >= (message.ourAgentCount || 1)) {
+                    console.log(`❌ Declining update offer for ${message.agentName}: local v${localAgent.recordVersion} is newer than remote v${message.recordVersion}`);
+                    await this.offerAgentUpdate(message.nodeId, localAgent);
+                } else {
+                    console.log(`🤔 Our version seems newer but we have fewer agents (${this.agents.size} vs ${message.ourAgentCount}), accepting anyway`);
+                    await this.requestSpecificAgents(message.nodeId, [message.agentId]);
+                }
             }
         } catch (error) {
             console.warn(`⚠️  Failed to handle agent update offer: ${error.message}`);
