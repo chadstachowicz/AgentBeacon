@@ -225,6 +225,22 @@ class P2PBeaconNode {
                 count: this.peers.size
             });
         });
+
+        // Get pubsub mesh status
+        this.app.get('/pubsub-status', (req, res) => {
+            const pubsub = this.libp2p.services.pubsub;
+            const subscribers = pubsub.getSubscribers('agent-registration');
+            const connections = this.libp2p.getConnections();
+            
+            res.json({
+                topic: 'agent-registration',
+                subscribers: subscribers.length,
+                subscriberPeers: subscribers.map(peer => peer.toString()),
+                connections: connections.length,
+                topics: Array.from(pubsub.getTopics()),
+                status: subscribers.length > 0 ? 'ready' : 'waiting-for-peers'
+            });
+        });
     }
 
     setupWebSocket() {
@@ -258,6 +274,28 @@ class P2PBeaconNode {
         pubsub.addEventListener('subscription-change', (evt) => {
             console.log(`📊 Subscription change: ${evt.detail.topic}, peers: ${evt.detail.peersSubscribed.length}`);
         });
+
+        // Periodic mesh status logging to help debug
+        setInterval(() => {
+            const subscribers = pubsub.getSubscribers('agent-registration');
+            const connections = this.libp2p.getConnections();
+            console.log(`🔄 Mesh status - Subscribers: ${subscribers.length}, Connections: ${connections.length}`);
+        }, 30000); // Every 30 seconds
+
+        // Send a heartbeat message every minute to keep mesh alive
+        setInterval(async () => {
+            try {
+                const heartbeat = JSON.stringify({
+                    type: 'heartbeat',
+                    nodeId: this.nodeId,
+                    timestamp: Date.now()
+                });
+                await pubsub.publish('agent-registration', new TextEncoder().encode(heartbeat));
+                console.log('💓 Sent heartbeat to maintain mesh');
+            } catch (error) {
+                console.log('💔 Heartbeat failed:', error.message);
+            }
+        }, 60000); // Every minute
     }
 
     async registerAgent(agentData) {
@@ -343,18 +381,42 @@ class P2PBeaconNode {
             
             console.log(`📢 Broadcasting agent registration: ${agentData.name}`);
             console.log(`📊 Current pubsub peers: ${pubsub.getSubscribers('agent-registration').length}`);
+            console.log(`🔗 Connected peers: ${this.libp2p.getConnections().length}`);
+            console.log(`📡 Pubsub topics: ${Array.from(pubsub.getTopics())}`);
+            
+            // Wait for pubsub mesh to establish if no peers subscribed
+            const subscribers = pubsub.getSubscribers('agent-registration');
+            if (subscribers.length === 0) {
+                console.log('⏳ No peers subscribed yet, waiting for mesh...');
+                // Wait a bit for the mesh to establish
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                const newSubscribers = pubsub.getSubscribers('agent-registration');
+                console.log(`📊 After waiting, pubsub peers: ${newSubscribers.length}`);
+                
+                if (newSubscribers.length === 0) {
+                    console.warn('⚠️  Still no peers subscribed to topic. Broadcasting anyway...');
+                }
+            }
             
             await pubsub.publish('agent-registration', new TextEncoder().encode(message));
             console.log('✅ Agent registration broadcast sent');
         } catch (error) {
             console.warn('⚠️  Failed to broadcast agent registration:', error.message);
+            
+            // Still store the agent locally even if broadcast fails
+            console.log('💾 Agent stored locally despite broadcast failure');
         }
     }
 
     handleAgentRegistration(data) {
         try {
             const message = JSON.parse(new TextDecoder().decode(data));
-            console.log(`📥 Processing agent registration message from node: ${message.nodeId}`);
+            console.log(`📥 Processing message type: ${message.type} from node: ${message.nodeId}`);
+            
+            if (message.type === 'heartbeat') {
+                // Ignore heartbeat messages - they're just for mesh maintenance
+                return;
+            }
             
             if (message.type === 'agent_registration' && message.nodeId !== this.nodeId) {
                 const agent = message.agent;
