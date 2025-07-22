@@ -4,9 +4,11 @@ import { createLibp2p } from 'libp2p';
 import { tcp } from '@libp2p/tcp'
 import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery'
 import { webSockets } from '@libp2p/websockets'
+import { ping } from '@libp2p/ping'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { noise } from '@chainsafe/libp2p-noise'
 import { gossipsub } from '@chainsafe/libp2p-gossipsub'
+import { kadDHT } from '@libp2p/kad-dht'
 import { bootstrap } from '@libp2p/bootstrap'
 import { mdns } from '@libp2p/mdns'
 import { identify } from '@libp2p/identify';
@@ -101,7 +103,12 @@ class P2PBeaconNode {
             ],
             services: {
                 pubsub: gossipsub(),
-                identify: identify()
+                dht: kadDHT({
+                    validators: {},
+                    selectors: {}
+                }),
+                identify: identify(),
+                ping: ping()
             }
         });
 
@@ -241,6 +248,44 @@ class P2PBeaconNode {
                 status: subscribers.length > 0 ? 'ready' : 'waiting-for-peers'
             });
         });
+
+        // Get DHT status
+        this.app.get('/dht-status', (req, res) => {
+            const dht = this.libp2p.services.dht;
+            const connections = this.libp2p.getConnections();
+            
+            res.json({
+                dhtEnabled: !!dht,
+                connections: connections.length,
+                connectedPeers: connections.map(conn => conn.remotePeer.toString()),
+                routingTableSize: dht?.routingTable?.size || 0,
+                status: connections.length > 0 ? 'connected' : 'isolated'
+            });
+        });
+
+        // Manually trigger agent sync
+        this.app.post('/sync', async (req, res) => {
+            try {
+                await this.syncAgentsFromNetwork();
+                res.json({ success: true, message: 'Agent sync triggered' });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Get agent from DHT by ID
+        this.app.get('/dht/agents/:agentId', async (req, res) => {
+            try {
+                const agent = await this.getAgentFromDHT(req.params.agentId);
+                if (agent) {
+                    res.json(agent);
+                } else {
+                    res.status(404).json({ error: 'Agent not found in DHT' });
+                }
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
     }
 
     setupWebSocket() {
@@ -263,24 +308,25 @@ class P2PBeaconNode {
             console.log(`📨 Received pubsub message on topic: ${evt.detail.topic}`);
             if (evt.detail.topic === 'agent-registration') {
                 this.handleAgentRegistration(evt.detail.data);
+            } else if (evt.detail.topic === 'agent-sync') {
+                this.handleAgentSyncMessage(evt.detail.data);
             }
         });
 
-        // Subscribe to the topic
+        // Subscribe to both topics
         pubsub.subscribe('agent-registration');
-        console.log('📡 Subscribed to agent-registration topic');
+        pubsub.subscribe('agent-sync');
+        console.log('📡 Subscribed to agent-registration and agent-sync topics');
         
         // Debug: Log when peers are added/removed from pubsub
         pubsub.addEventListener('subscription-change', (evt) => {
             console.log(`📊 Subscription change: ${evt.detail.topic}, peers: ${evt.detail.peersSubscribed.length}`);
         });
 
-        // Periodic mesh status logging to help debug
-        setInterval(() => {
-            const subscribers = pubsub.getSubscribers('agent-registration');
-            const connections = this.libp2p.getConnections();
-            console.log(`🔄 Mesh status - Subscribers: ${subscribers.length}, Connections: ${connections.length}`);
-        }, 30000); // Every 30 seconds
+        // Periodic network sync - query DHT and sync with peers
+        setInterval(async () => {
+            await this.syncAgentsFromNetwork();
+        }, 120000); // Every 2 minutes
 
         // Send a heartbeat message every minute to keep mesh alive
         setInterval(async () => {
@@ -339,7 +385,10 @@ class P2PBeaconNode {
             }
         }
 
-        // Broadcast to network
+        // Store in DHT for distributed discovery
+        await this.storeAgentInDHT(fullAgentData);
+
+        // Also broadcast to network for immediate notification
         await this.broadcastAgentRegistration(fullAgentData);
 
         // Notify WebSocket clients
@@ -359,6 +408,9 @@ class P2PBeaconNode {
         }
 
         this.agents.delete(agentId);
+
+        // Store tombstone in DHT
+        await this.removeAgentFromDHT(agentId);
 
         // Notify WebSocket clients
         this.broadcastToClients({
@@ -436,6 +488,64 @@ class P2PBeaconNode {
         }
     }
 
+    async handleAgentSyncMessage(data) {
+        try {
+            const message = JSON.parse(new TextDecoder().decode(data));
+            console.log(`🔄 Processing sync message type: ${message.type} from node: ${message.nodeId}`);
+            
+            if (message.nodeId === this.nodeId) {
+                return; // Ignore our own messages
+            }
+            
+            if (message.type === 'agent_list_request') {
+                // Someone is requesting our agent list
+                console.log(`📤 Sending agent list to requesting node: ${message.nodeId}`);
+                
+                const agents = Array.from(this.agents.values()).map(agent => ({
+                    id: agent.id,
+                    name: agent.name,
+                    capabilities: agent.capabilities,
+                    registeredAt: agent.registeredAt,
+                    registeredBy: agent.registeredBy
+                }));
+                
+                const response = JSON.stringify({
+                    type: 'agent_list_response',
+                    nodeId: this.nodeId,
+                    requestingNode: message.nodeId,
+                    agents: agents,
+                    timestamp: Date.now()
+                });
+                
+                const pubsub = this.libp2p.services.pubsub;
+                await pubsub.publish('agent-sync', new TextEncoder().encode(response));
+                
+            } else if (message.type === 'agent_list_response' && message.requestingNode === this.nodeId) {
+                // We received a response to our agent list request
+                console.log(`📥 Received agent list from node: ${message.nodeId} with ${message.agents.length} agents`);
+                
+                for (const agentData of message.agents) {
+                    if (!this.agents.has(agentData.id)) {
+                        // New agent discovered - fetch full details from DHT
+                        const fullAgent = await this.getAgentFromDHT(agentData.id);
+                        if (fullAgent && !fullAgent.deleted) {
+                            this.agents.set(fullAgent.id, fullAgent);
+                            console.log(`✨ Discovered new agent from DHT: ${fullAgent.name}`);
+                            
+                            // Notify WebSocket clients
+                            this.broadcastToClients({
+                                type: 'agent_discovered',
+                                agent: fullAgent
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️  Failed to handle agent sync message:', error.message);
+        }
+    }
+
     broadcastToClients(data) {
         if (this.wss) {
             this.wss.clients.forEach(client => {
@@ -443,6 +553,108 @@ class P2PBeaconNode {
                     client.send(JSON.stringify(data));
                 }
             });
+        }
+    }
+
+    // ===== DHT-based Agent Storage and Discovery =====
+
+    async storeAgentInDHT(agentData) {
+        try {
+            const dht = this.libp2p.services.dht;
+            const key = `/agents/${agentData.id}`;
+            const value = JSON.stringify(agentData);
+            
+            console.log(`🗃️  Storing agent in DHT: ${agentData.name} at key ${key}`);
+            await dht.put(new TextEncoder().encode(key), new TextEncoder().encode(value));
+            console.log(`✅ Agent stored in DHT successfully`);
+        } catch (error) {
+            console.warn(`⚠️  Failed to store agent in DHT: ${error.message}`);
+        }
+    }
+
+    async getAgentFromDHT(agentId) {
+        try {
+            const dht = this.libp2p.services.dht;
+            const key = `/agents/${agentId}`;
+            
+            console.log(`🔍 Looking up agent in DHT: ${agentId}`);
+            const result = await dht.get(new TextEncoder().encode(key));
+            
+            if (result) {
+                const agentData = JSON.parse(new TextDecoder().decode(result));
+                console.log(`✅ Found agent in DHT: ${agentData.name}`);
+                return agentData;
+            }
+            return null;
+        } catch (error) {
+            console.warn(`⚠️  Failed to get agent from DHT: ${error.message}`);
+            return null;
+        }
+    }
+
+    async discoverAgentsFromDHT() {
+        try {
+            const dht = this.libp2p.services.dht;
+            const discoveredAgents = new Map();
+            
+            console.log(`🔍 Discovering agents from DHT...`);
+            
+            // Query for agents by searching for keys with prefix `/agents/`
+            // Note: This is a simplified approach. In production, you might want
+            // to maintain an index of agent IDs
+            
+            // For now, we'll use a different approach - periodically sync known agents
+            // and let the network propagate agent discoveries
+            
+            return discoveredAgents;
+        } catch (error) {
+            console.warn(`⚠️  Failed to discover agents from DHT: ${error.message}`);
+            return new Map();
+        }
+    }
+
+    async removeAgentFromDHT(agentId) {
+        try {
+            const dht = this.libp2p.services.dht;
+            const key = `/agents/${agentId}`;
+            
+            console.log(`🗑️  Removing agent from DHT: ${agentId}`);
+            // Note: DHT doesn't have a direct delete, but we can store a tombstone
+            const tombstone = JSON.stringify({
+                id: agentId,
+                deleted: true,
+                deletedAt: new Date().toISOString(),
+                deletedBy: this.nodeId
+            });
+            
+            await dht.put(new TextEncoder().encode(key), new TextEncoder().encode(tombstone));
+            console.log(`✅ Agent tombstone stored in DHT`);
+        } catch (error) {
+            console.warn(`⚠️  Failed to remove agent from DHT: ${error.message}`);
+        }
+    }
+
+    async syncAgentsFromNetwork() {
+        console.log(`🔄 Syncing agents from network...`);
+        
+        // Get list of connected peers
+        const connections = this.libp2p.getConnections();
+        console.log(`📡 Syncing with ${connections.length} peers`);
+        
+        for (const connection of connections) {
+            try {
+                // Use pubsub to request agent lists from peers
+                const request = JSON.stringify({
+                    type: 'agent_list_request',
+                    nodeId: this.nodeId,
+                    timestamp: Date.now()
+                });
+                
+                const pubsub = this.libp2p.services.pubsub;
+                await pubsub.publish('agent-sync', new TextEncoder().encode(request));
+            } catch (error) {
+                console.warn(`⚠️  Failed to request agent list from peer: ${error.message}`);
+            }
         }
     }
 
