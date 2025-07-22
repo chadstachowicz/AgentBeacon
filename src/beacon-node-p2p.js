@@ -1,8 +1,14 @@
+
+
 import { createLibp2p } from 'libp2p';
 import { tcp } from '@libp2p/tcp'
-import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery';
-import { Bootstrap } from '@libp2p/bootstrap';
-import { mdns } from '@libp2p/mdns';
+import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery'
+import { webSockets } from '@libp2p/websockets'
+import { yamux } from '@chainsafe/libp2p-yamux'
+import { noise } from '@chainsafe/libp2p-noise'
+import { gossipsub } from '@chainsafe/libp2p-gossipsub'
+import { bootstrap } from '@libp2p/bootstrap'
+import { mdns } from '@libp2p/mdns'
 import { identify } from '@libp2p/identify';
 import { create } from 'ipfs-http-client';
 import express from 'express';
@@ -86,15 +92,15 @@ class P2PBeaconNode {
                     `/ip4/0.0.0.0/tcp/${this.config.p2pPort + 1}/ws`
                 ]
             },
-            transports: [tcp()],
-            connectionEncryption: [],
-            streamMuxers: [],
+            transports: [webSockets()],
+            connectionEncryption: [noise()],
+            streamMuxers: [yamux()],
             peerDiscovery: [
- //               new Bootstrap({ list: this.config.bootstrapPeers }),
-                new mdns()
+
+                mdns()
             ],
             services: {
-                pubsub: pubsubPeerDiscovery(),
+                pubsub: gossipsub(),
                 identify: identify()
             }
         });
