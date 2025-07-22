@@ -209,31 +209,66 @@ class P2PBeaconNode {
         });
 
         this.libp2p.addEventListener('peer:discovery', (evt) => {
-            const peer = evt.detail;
-            console.log(`🔍 Discovered peer: ${peer.id}`);
-            this.peers.add(peer.id.toString());
-            
-            // Try to connect to discovered peer
-            this.connectToPeer(peer.id, peer.multiaddrs);
+            try {
+                const peer = evt.detail;
+                if (!peer || !peer.id) {
+                    console.warn('⚠️  Received peer discovery event with invalid peer data');
+                    return;
+                }
+                
+                const peerId = peer.id.toString();
+                console.log(`🔍 Discovered peer: ${peerId}`);
+                this.peers.add(peerId);
+                
+                // Try to connect to discovered peer
+                this.connectToPeer(peer.id, peer.multiaddrs);
+            } catch (error) {
+                console.warn('⚠️  Error in peer discovery handler:', error.message);
+            }
         });
 
         this.libp2p.addEventListener('peer:connect', (evt) => {
-            const peer = evt.detail;
-            console.log(`🤝 Connected to peer: ${peer.id}`);
-            console.log(`📊 Total connected peers: ${this.libp2p.getConnections().length}`);
-            
-            // Log connection details
-            const connections = this.libp2p.getConnections();
-            connections.forEach(conn => {
-                console.log(`   📍 Connection: ${conn.remoteAddr.toString()}`);
-            });
+            try {
+                const peer = evt.detail;
+                if (!peer || !peer.id) {
+                    console.warn('⚠️  Received peer connect event with invalid peer data');
+                    return;
+                }
+                
+                const peerId = peer.id.toString();
+                console.log(`🤝 Connected to peer: ${peerId}`);
+                console.log(`📊 Total connected peers: ${this.libp2p.getConnections().length}`);
+                
+                // Log connection details
+                const connections = this.libp2p.getConnections();
+                connections.forEach(conn => {
+                    try {
+                        console.log(`   📍 Connection: ${conn.remoteAddr?.toString() || 'unknown address'}`);
+                    } catch (connError) {
+                        console.log(`   📍 Connection: [address error]`);
+                    }
+                });
+            } catch (error) {
+                console.warn('⚠️  Error in peer connect handler:', error.message);
+            }
         });
 
         this.libp2p.addEventListener('peer:disconnect', (evt) => {
-            const peer = evt.detail;
-            console.log(`❌ Disconnected from peer: ${peer.id}`);
-            this.peers.delete(peer.id.toString());
-            console.log(`📊 Remaining connected peers: ${this.libp2p.getConnections().length}`);
+            try {
+                const peer = evt.detail;
+                const peerId = peer?.id?.toString() || 'unknown peer';
+                
+                console.log(`❌ Disconnected from peer: ${peerId}`);
+                
+                // Only try to delete if we have a valid peer ID
+                if (peer?.id) {
+                    this.peers.delete(peer.id.toString());
+                }
+                
+                console.log(`📊 Remaining connected peers: ${this.libp2p.getConnections().length}`);
+            } catch (error) {
+                console.warn('⚠️  Error in peer disconnect handler:', error.message);
+            }
         });
 
         await this.libp2p.start();
@@ -390,6 +425,12 @@ class P2PBeaconNode {
                 let newConnections = 0;
                 for (const peerId of discovered) {
                     try {
+                        // Validate peer ID before attempting connection
+                        if (!peerId || typeof peerId !== 'string') {
+                            console.warn(`⚠️  Skipping invalid peer ID: ${peerId}`);
+                            continue;
+                        }
+                        
                         await this.libp2p.dial(peerId);
                         newConnections++;
                         console.log(`✅ Connected to peer: ${peerId}`);
@@ -406,6 +447,7 @@ class P2PBeaconNode {
                     discoveredPeers: discovered.length
                 });
             } catch (error) {
+                console.error(`❌ Error in manual connect endpoint: ${error.message}`);
                 res.status(500).json({ success: false, error: error.message });
             }
         });
@@ -851,18 +893,28 @@ class P2PBeaconNode {
 
     async connectToPeer(peerId, multiaddrs) {
         try {
-            console.log(`🔗 Attempting to connect to peer: ${peerId}`);
+            if (!peerId) {
+                console.warn('⚠️  Cannot connect to peer: invalid peer ID');
+                return;
+            }
+            
+            const peerIdStr = peerId.toString();
+            console.log(`🔗 Attempting to connect to peer: ${peerIdStr}`);
             
             // Sort multiaddrs to prefer TCP connections
             const sortedMultiaddrs = (multiaddrs || []).sort((a, b) => {
-                const aStr = a.toString();
-                const bStr = b.toString();
-                // Prefer TCP over WebSocket, and local addresses over remote
-                if (aStr.includes('/tcp/') && !aStr.includes('/ws')) return -1;
-                if (bStr.includes('/tcp/') && !bStr.includes('/ws')) return 1;
-                if (aStr.includes('127.0.0.1')) return -1;
-                if (bStr.includes('127.0.0.1')) return 1;
-                return 0;
+                try {
+                    const aStr = a.toString();
+                    const bStr = b.toString();
+                    // Prefer TCP over WebSocket, and local addresses over remote
+                    if (aStr.includes('/tcp/') && !aStr.includes('/ws')) return -1;
+                    if (bStr.includes('/tcp/') && !bStr.includes('/ws')) return 1;
+                    if (aStr.includes('127.0.0.1')) return -1;
+                    if (bStr.includes('127.0.0.1')) return 1;
+                    return 0;
+                } catch (sortError) {
+                    return 0;
+                }
             });
             
             // Try each multiaddr until one works
@@ -871,7 +923,7 @@ class P2PBeaconNode {
                     // Ensure the multiaddr includes the peer ID
                     let addrStr = addr.toString();
                     if (!addrStr.includes('/p2p/')) {
-                        addrStr = `${addrStr}/p2p/${peerId}`;
+                        addrStr = `${addrStr}/p2p/${peerIdStr}`;
                     }
                     
                     // Create proper Multiaddr object
@@ -879,84 +931,119 @@ class P2PBeaconNode {
                     
                     console.log(`📞 Dialing: ${fullMultiaddr.toString()}`);
                     await this.libp2p.dial(fullMultiaddr);
-                    console.log(`✅ Successfully connected to peer: ${peerId} via ${fullMultiaddr.toString()}`);
+                    console.log(`✅ Successfully connected to peer: ${peerIdStr} via ${fullMultiaddr.toString()}`);
                     return;
                 } catch (dialError) {
-                    console.log(`⚠️  Failed to dial ${addr.toString()}: ${dialError.message}`);
+                    console.log(`⚠️  Failed to dial ${addr?.toString() || 'invalid addr'}: ${dialError.message}`);
                 }
             }
             
             // If multiaddrs didn't work, try dialing by peer ID directly
-            console.log(`📞 Trying direct peer ID dial: ${peerId}`);
+            console.log(`📞 Trying direct peer ID dial: ${peerIdStr}`);
             await this.libp2p.dial(peerId);
-            console.log(`✅ Successfully connected to peer: ${peerId} by peer ID`);
+            console.log(`✅ Successfully connected to peer: ${peerIdStr} by peer ID`);
         } catch (error) {
-            console.warn(`❌ Failed to connect to peer ${peerId}: ${error.message}`);
+            console.warn(`❌ Failed to connect to peer ${peerId?.toString() || 'unknown'}: ${error.message}`);
         }
     }
 
     async syncAgentsFromNetwork() {
-        console.log(`🔄 Syncing agents from network...`);
-        
-        // Get list of connected peers
-        const connections = this.libp2p.getConnections();
-        console.log(`📡 Syncing with ${connections.length} peers`);
-        console.log(`🔍 Discovered peers: ${this.peers.size}`);
-        
-        if (connections.length === 0 && this.peers.size > 0) {
-            console.log(`⚠️  Have discovered peers but no connections. Attempting to connect...`);
+        try {
+            console.log(`🔄 Syncing agents from network...`);
             
-            // Try to connect to discovered peers
-            for (const peerId of this.peers) {
+            // Get list of connected peers
+            const connections = this.libp2p.getConnections();
+            console.log(`📡 Syncing with ${connections.length} peers`);
+            console.log(`🔍 Discovered peers: ${this.peers.size}`);
+            
+            if (connections.length === 0 && this.peers.size > 0) {
+                console.log(`⚠️  Have discovered peers but no connections. Attempting to connect...`);
+                
+                // Try to connect to discovered peers
+                for (const peerId of this.peers) {
+                    try {
+                        if (peerId && typeof peerId === 'string') {
+                            await this.libp2p.dial(peerId);
+                            console.log(`🔗 Connected to peer: ${peerId}`);
+                        }
+                    } catch (error) {
+                        console.warn(`❌ Failed to connect to peer ${peerId}: ${error.message}`);
+                    }
+                }
+                
+                // Update connections after dial attempts
+                const newConnections = this.libp2p.getConnections();
+                console.log(`📡 After connection attempts: ${newConnections.length} peers connected`);
+            }
+            
+            // Send sync requests to connected peers
+            const finalConnections = this.libp2p.getConnections();
+            for (const connection of finalConnections) {
                 try {
-                    await this.libp2p.dial(peerId);
-                    console.log(`🔗 Connected to peer: ${peerId}`);
+                    // Validate connection object
+                    if (!connection || !connection.remotePeer) {
+                        console.warn('⚠️  Invalid connection object, skipping sync request');
+                        continue;
+                    }
+                    
+                    // Use pubsub to request agent lists from peers
+                    const request = JSON.stringify({
+                        type: 'agent_list_request',
+                        nodeId: this.nodeId,
+                        timestamp: Date.now()
+                    });
+                    
+                    const pubsub = this.libp2p.services.pubsub;
+                    await pubsub.publish('agent-sync', new TextEncoder().encode(request));
+                    console.log(`📤 Sent sync request to peer: ${connection.remotePeer.toString()}`);
                 } catch (error) {
-                    console.warn(`❌ Failed to connect to peer ${peerId}: ${error.message}`);
+                    console.warn(`⚠️  Failed to request agent list from peer: ${error.message}`);
                 }
             }
-            
-            // Update connections after dial attempts
-            const newConnections = this.libp2p.getConnections();
-            console.log(`📡 After connection attempts: ${newConnections.length} peers connected`);
-        }
-        
-        // Send sync requests to connected peers
-        const finalConnections = this.libp2p.getConnections();
-        for (const connection of finalConnections) {
-            try {
-                // Use pubsub to request agent lists from peers
-                const request = JSON.stringify({
-                    type: 'agent_list_request',
-                    nodeId: this.nodeId,
-                    timestamp: Date.now()
-                });
-                
-                const pubsub = this.libp2p.services.pubsub;
-                await pubsub.publish('agent-sync', new TextEncoder().encode(request));
-                console.log(`📤 Sent sync request to peer: ${connection.remotePeer.toString()}`);
-            } catch (error) {
-                console.warn(`⚠️  Failed to request agent list from peer: ${error.message}`);
-            }
+        } catch (error) {
+            console.error(`❌ Error in syncAgentsFromNetwork: ${error.message}`);
         }
     }
 
     async stop() {
         console.log('🛑 Stopping P2P Beacon Node...');
         
-        if (this.wss) {
-            this.wss.close();
+        try {
+            // Save agents before shutdown
+            await this.saveAgentsToFile();
+            console.log('💾 Final backup completed');
+        } catch (error) {
+            console.warn('⚠️  Failed to save agents during shutdown:', error.message);
         }
         
-        if (this.server) {
-            this.server.close();
+        try {
+            if (this.wss) {
+                this.wss.close();
+                console.log('🔌 WebSocket server closed');
+            }
+        } catch (error) {
+            console.warn('⚠️  Error closing WebSocket server:', error.message);
         }
         
-        if (this.libp2p) {
-            await this.libp2p.stop();
+        try {
+            if (this.server) {
+                this.server.close();
+                console.log('🌐 HTTP server closed');
+            }
+        } catch (error) {
+            console.warn('⚠️  Error closing HTTP server:', error.message);
         }
         
-        console.log('✅ P2P Beacon Node stopped');
+        try {
+            if (this.libp2p) {
+                await this.libp2p.stop();
+                console.log('📡 LibP2P node stopped');
+            }
+        } catch (error) {
+            console.warn('⚠️  Error stopping LibP2P node:', error.message);
+        }
+        
+        console.log('✅ P2P Beacon Node stopped gracefully');
     }
 }
 
@@ -991,12 +1078,37 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     const beaconNode = new P2PBeaconNode(config);
     
-    process.on('SIGINT', async () => {
-        await beaconNode.stop();
-        process.exit(0);
+    // Graceful shutdown handlers
+    const shutdown = async (signal) => {
+        console.log(`\n📨 Received ${signal}, shutting down gracefully...`);
+        try {
+            await beaconNode.stop();
+            console.log('✅ Shutdown completed successfully');
+            process.exit(0);
+        } catch (error) {
+            console.error('❌ Error during shutdown:', error.message);
+            process.exit(1);
+        }
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    
+    // Handle uncaught exceptions and rejections
+    process.on('uncaughtException', (error) => {
+        console.error('❌ Uncaught Exception:', error);
+        shutdown('uncaughtException');
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+        console.error('❌ Unhandled Promise Rejection at:', promise, 'reason:', reason);
+        // Don't exit on unhandled rejection, just log it
     });
 
-    beaconNode.start().catch(console.error);
+    beaconNode.start().catch((error) => {
+        console.error('❌ Failed to start beacon node:', error);
+        process.exit(1);
+    });
 }
 
 export default P2PBeaconNode; 
