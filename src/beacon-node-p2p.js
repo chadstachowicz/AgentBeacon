@@ -19,6 +19,8 @@ import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 class P2PBeaconNode {
     constructor(config = {}) {
@@ -27,6 +29,7 @@ class P2PBeaconNode {
             p2pPort: config.p2pPort || 4000,
             ipfsEndpoint: config.ipfsEndpoint || 'http://localhost:5001',
             bootstrapPeers: config.bootstrapPeers || [],
+            dataDir: config.dataDir || './data',
             ...config
         };
         
@@ -37,6 +40,92 @@ class P2PBeaconNode {
         this.libp2p = null;
         this.ipfs = null;
         this.nodeId = uuidv4();
+        this.agentsFilePath = path.join(this.config.dataDir, 'agents.json');
+    }
+
+    // ===== Local Persistence Methods =====
+
+    async ensureDataDirectory() {
+        try {
+            await fs.mkdir(this.config.dataDir, { recursive: true });
+            console.log(`📁 Data directory ensured: ${this.config.dataDir}`);
+        } catch (error) {
+            console.warn(`⚠️  Failed to create data directory: ${error.message}`);
+        }
+    }
+
+    async saveAgentsToFile() {
+        try {
+            await this.ensureDataDirectory();
+            
+            const agentsArray = Array.from(this.agents.entries()).map(([id, agent]) => ({
+                id,
+                ...agent,
+                lastSaved: new Date().toISOString()
+            }));
+            
+            const agentsData = {
+                nodeId: this.nodeId,
+                lastSaved: new Date().toISOString(),
+                totalAgents: agentsArray.length,
+                agents: agentsArray
+            };
+            
+            await fs.writeFile(this.agentsFilePath, JSON.stringify(agentsData, null, 2));
+            console.log(`💾 Saved ${agentsArray.length} agents to ${this.agentsFilePath}`);
+        } catch (error) {
+            console.warn(`⚠️  Failed to save agents to file: ${error.message}`);
+        }
+    }
+
+    async loadAgentsFromFile() {
+        try {
+            const data = await fs.readFile(this.agentsFilePath, 'utf8');
+            const agentsData = JSON.parse(data);
+            
+            console.log(`📂 Loading ${agentsData.totalAgents} agents from ${this.agentsFilePath}`);
+            console.log(`📅 Last saved: ${agentsData.lastSaved}`);
+            
+            // Restore agents to memory
+            for (const agent of agentsData.agents) {
+                // Update lastSeen to indicate this was restored from file
+                agent.lastSeen = new Date().toISOString();
+                agent.restoredFromFile = true;
+                
+                this.agents.set(agent.id, agent);
+            }
+            
+            console.log(`✅ Restored ${agentsData.totalAgents} agents from local storage`);
+            return agentsData.totalAgents;
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                console.log(`📂 No existing agents file found at ${this.agentsFilePath}`);
+                return 0;
+            }
+            console.warn(`⚠️  Failed to load agents from file: ${error.message}`);
+            return 0;
+        }
+    }
+
+    async restoreAgentsToDHT() {
+        if (this.agents.size === 0) {
+            console.log(`📭 No agents to restore to DHT`);
+            return;
+        }
+        
+        console.log(`🔄 Restoring ${this.agents.size} agents to DHT...`);
+        let restoredCount = 0;
+        
+        for (const agent of this.agents.values()) {
+            try {
+                await this.storeAgentInDHT(agent);
+                restoredCount++;
+            } catch (error) {
+                console.warn(`⚠️  Failed to restore agent ${agent.name} to DHT: ${error.message}`);
+            }
+        }
+        
+        console.log(`✅ Restored ${restoredCount}/${this.agents.size} agents to DHT`);
     }
 
     async start() {
@@ -44,11 +133,17 @@ class P2PBeaconNode {
         console.log(`Node ID: ${this.nodeId}`);
         
         try {
+            // Load agents from local storage first
+            await this.loadAgentsFromFile();
+            
             // Initialize IPFS client
             await this.initIPFS();
             
             // Initialize libp2p
             await this.initLibp2p();
+            
+            // Restore agents to DHT after libp2p is initialized
+            await this.restoreAgentsToDHT();
             
             // Setup HTTP API
             this.setupAPI();
@@ -328,6 +423,64 @@ class P2PBeaconNode {
                 res.status(500).json({ error: error.message });
             }
         });
+
+        // Manual backup endpoint
+        this.app.post('/backup', async (req, res) => {
+            try {
+                await this.saveAgentsToFile();
+                res.json({ 
+                    success: true, 
+                    message: `Backup completed - ${this.agents.size} agents saved`,
+                    filePath: this.agentsFilePath,
+                    agentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Manual restore endpoint (for testing)
+        this.app.post('/restore', async (req, res) => {
+            try {
+                const loadedCount = await this.loadAgentsFromFile();
+                await this.restoreAgentsToDHT();
+                res.json({ 
+                    success: true, 
+                    message: `Restore completed - ${loadedCount} agents loaded`,
+                    agentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // Get backup status
+        this.app.get('/backup-status', async (req, res) => {
+            try {
+                let fileExists = false;
+                let fileSize = 0;
+                let lastModified = null;
+                
+                try {
+                    const stats = await fs.stat(this.agentsFilePath);
+                    fileExists = true;
+                    fileSize = stats.size;
+                    lastModified = stats.mtime.toISOString();
+                } catch (error) {
+                    // File doesn't exist
+                }
+                
+                res.json({
+                    filePath: this.agentsFilePath,
+                    fileExists,
+                    fileSize,
+                    lastModified,
+                    currentAgentCount: this.agents.size
+                });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
     }
 
     setupWebSocket() {
@@ -370,6 +523,11 @@ class P2PBeaconNode {
         setInterval(async () => {
             await this.syncAgentsFromNetwork();
         }, 120000); // Every 2 minutes
+
+        // Periodic backup of agents to local file
+        setInterval(async () => {
+            await this.saveAgentsToFile();
+        }, 300000); // Every 5 minutes
 
         // Send a heartbeat message every minute to keep mesh alive (only if peers are subscribed)
         setInterval(async () => {
@@ -421,6 +579,9 @@ class P2PBeaconNode {
         // Store locally
         this.agents.set(agentId, fullAgentData);
 
+        // Save to local file for persistence
+        await this.saveAgentsToFile();
+
         // Store on IPFS if available
         if (this.ipfs) {
             try {
@@ -456,6 +617,9 @@ class P2PBeaconNode {
         }
 
         this.agents.delete(agentId);
+
+        // Save to local file for persistence
+        await this.saveAgentsToFile();
 
         // Store tombstone in DHT
         await this.removeAgentFromDHT(agentId);
@@ -579,6 +743,9 @@ class P2PBeaconNode {
                         if (fullAgent && !fullAgent.deleted) {
                             this.agents.set(fullAgent.id, fullAgent);
                             console.log(`✨ Discovered new agent from DHT: ${fullAgent.name}`);
+                            
+                            // Save to local file for persistence
+                            await this.saveAgentsToFile();
                             
                             // Notify WebSocket clients
                             this.broadcastToClients({
@@ -807,7 +974,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         .option('-p, --port <port>', 'HTTP port', '3000')
         .option('--p2p-port <port>', 'P2P port', '4000')
         .option('--ipfs-endpoint <url>', 'IPFS endpoint', 'http://localhost:5001')
-        .option('--bootstrap-peers <peers>', 'Bootstrap peers (comma-separated)');
+        .option('--bootstrap-peers <peers>', 'Bootstrap peers (comma-separated)')
+        .option('--data-dir <path>', 'Data directory for local persistence', './data');
 
     program.parse();
 
@@ -817,7 +985,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         port: parseInt(options.port),
         p2pPort: parseInt(options.p2pPort),
         ipfsEndpoint: options.ipfsEndpoint,
-        bootstrapPeers: options.bootstrapPeers ? options.bootstrapPeers.split(',') : []
+        bootstrapPeers: options.bootstrapPeers ? options.bootstrapPeers.split(',') : [],
+        dataDir: options.dataDir
     };
 
     const beaconNode = new P2PBeaconNode(config);
