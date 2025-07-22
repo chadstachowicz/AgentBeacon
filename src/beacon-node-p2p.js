@@ -650,28 +650,56 @@ class P2PBeaconNode {
                 
                 // Convert to Uint8Array for proper DHT handling
                 const keyBytes = new Uint8Array(Buffer.from(indexKey, 'utf8'));
-                const result = await dht.get(keyBytes);
+                const resultIterator = await dht.get(keyBytes);
                 
-                if (result) {
-                    let resultString;
-                    
-                    // Handle different result types
-                    if (result instanceof Uint8Array) {
-                        resultString = new TextDecoder().decode(result);
-                    } else if (result instanceof ArrayBuffer) {
-                        resultString = new TextDecoder().decode(new Uint8Array(result));
-                    } else if (Buffer.isBuffer(result)) {
-                        resultString = result.toString('utf8');
-                    } else if (Array.isArray(result)) {
-                        resultString = new TextDecoder().decode(new Uint8Array(result));
-                    } else {
-                        resultString = String(result);
+                // Handle AsyncGenerator/Iterator pattern
+                if (resultIterator && typeof resultIterator[Symbol.asyncIterator] === 'function') {
+                    for await (const record of resultIterator) {
+                        if (record && record.value) {
+                            let resultString;
+                            const value = record.value;
+                            
+                            // Handle different value types
+                            if (value instanceof Uint8Array) {
+                                resultString = new TextDecoder().decode(value);
+                            } else if (value instanceof ArrayBuffer) {
+                                resultString = new TextDecoder().decode(new Uint8Array(value));
+                            } else if (Buffer.isBuffer(value)) {
+                                resultString = value.toString('utf8');
+                            } else if (Array.isArray(value)) {
+                                resultString = new TextDecoder().decode(new Uint8Array(value));
+                            } else {
+                                resultString = String(value);
+                            }
+                            
+                            try {
+                                const indexData = JSON.parse(resultString);
+                                return res.json(indexData);
+                            } catch (parseError) {
+                                continue; // Try next record if available
+                            }
+                        }
                     }
                     
-                    const indexData = JSON.parse(resultString);
-                    res.json(indexData);
-                } else {
                     res.status(404).json({ error: 'Agent index not found in DHT' });
+                } else {
+                    // Fallback: treat as direct result
+                    if (resultIterator) {
+                        let resultString;
+                        
+                        if (resultIterator instanceof Uint8Array) {
+                            resultString = new TextDecoder().decode(resultIterator);
+                        } else if (Buffer.isBuffer(resultIterator)) {
+                            resultString = resultIterator.toString('utf8');
+                        } else {
+                            resultString = String(resultIterator);
+                        }
+                        
+                        const indexData = JSON.parse(resultString);
+                        res.json(indexData);
+                    } else {
+                        res.status(404).json({ error: 'Agent index not found in DHT' });
+                    }
                 }
             } catch (error) {
                 res.status(500).json({ error: error.message });
@@ -1395,39 +1423,77 @@ class P2PBeaconNode {
             
             // Convert to Uint8Array for proper DHT handling
             const keyBytes = new Uint8Array(Buffer.from(key, 'utf8'));
-            const result = await dht.get(keyBytes);
+            const resultIterator = await dht.get(keyBytes);
             
-            if (result) {
-                console.log(`📦 DHT result type: ${Object.prototype.toString.call(result)}, length: ${result.length}`);
+            console.log(`📦 DHT result type: ${Object.prototype.toString.call(resultIterator)}`);
+            
+            // Handle AsyncGenerator/Iterator pattern
+            if (resultIterator && typeof resultIterator[Symbol.asyncIterator] === 'function') {
+                console.log(`🔄 Processing AsyncGenerator results...`);
                 
-                let resultString;
-                
-                // Handle different result types
-                if (result instanceof Uint8Array) {
-                    resultString = new TextDecoder().decode(result);
-                } else if (result instanceof ArrayBuffer) {
-                    resultString = new TextDecoder().decode(new Uint8Array(result));
-                } else if (Buffer.isBuffer(result)) {
-                    resultString = result.toString('utf8');
-                } else if (Array.isArray(result)) {
-                    // Convert array to Uint8Array first
-                    resultString = new TextDecoder().decode(new Uint8Array(result));
-                } else {
-                    // Fallback: try to convert to string directly
-                    console.warn(`⚠️  Unexpected DHT result type: ${typeof result}, attempting string conversion`);
-                    resultString = String(result);
+                for await (const record of resultIterator) {
+                    console.log(`📄 Processing DHT record...`);
+                    
+                    if (record && record.value) {
+                        let resultString;
+                        const value = record.value;
+                        
+                        console.log(`📦 Record value type: ${Object.prototype.toString.call(value)}, length: ${value.length}`);
+                        
+                        // Handle different value types
+                        if (value instanceof Uint8Array) {
+                            resultString = new TextDecoder().decode(value);
+                        } else if (value instanceof ArrayBuffer) {
+                            resultString = new TextDecoder().decode(new Uint8Array(value));
+                        } else if (Buffer.isBuffer(value)) {
+                            resultString = value.toString('utf8');
+                        } else if (Array.isArray(value)) {
+                            resultString = new TextDecoder().decode(new Uint8Array(value));
+                        } else {
+                            console.warn(`⚠️  Unexpected record value type: ${typeof value}`);
+                            resultString = String(value);
+                        }
+                        
+                        console.log(`📝 Decoded result string length: ${resultString.length}`);
+                        console.log(`📝 First 100 chars: ${resultString.slice(0, 100)}`);
+                        
+                        try {
+                            const agentData = JSON.parse(resultString);
+                            console.log(`✅ Found agent in DHT: ${agentData.name} (v${agentData.recordVersion || 'legacy'})`);
+                            return agentData;
+                        } catch (parseError) {
+                            console.warn(`⚠️  Failed to parse JSON from DHT record: ${parseError.message}`);
+                            console.warn(`📝 Raw content: ${resultString.slice(0, 200)}`);
+                            continue; // Try next record if available
+                        }
+                    }
                 }
                 
-                console.log(`📝 Decoded result string length: ${resultString.length}`);
-                console.log(`📝 First 100 chars: ${resultString.slice(0, 100)}`);
+                console.log(`❌ No valid records found in DHT for agent: ${agentId}`);
+                return null;
+            } else {
+                console.log(`⚠️  DHT result is not an async iterator, treating as direct result`);
                 
-                const agentData = JSON.parse(resultString);
-                console.log(`✅ Found agent in DHT: ${agentData.name} (v${agentData.recordVersion || 'legacy'})`);
-                return agentData;
+                // Fallback: treat as direct result (older libp2p versions)
+                if (resultIterator) {
+                    let resultString;
+                    
+                    if (resultIterator instanceof Uint8Array) {
+                        resultString = new TextDecoder().decode(resultIterator);
+                    } else if (Buffer.isBuffer(resultIterator)) {
+                        resultString = resultIterator.toString('utf8');
+                    } else {
+                        resultString = String(resultIterator);
+                    }
+                    
+                    const agentData = JSON.parse(resultString);
+                    console.log(`✅ Found agent in DHT (direct): ${agentData.name} (v${agentData.recordVersion || 'legacy'})`);
+                    return agentData;
+                }
+                
+                console.log(`❌ No result found in DHT for agent: ${agentId}`);
+                return null;
             }
-            
-            console.log(`❌ No result found in DHT for agent: ${agentId}`);
-            return null;
         } catch (error) {
             console.warn(`⚠️  Failed to get agent from DHT: ${error.message}`);
             console.warn(`⚠️  Error stack: ${error.stack}`);
@@ -1479,57 +1545,120 @@ class P2PBeaconNode {
             
             // Convert to Uint8Array for proper DHT handling
             const keyBytes = new Uint8Array(Buffer.from(indexKey, 'utf8'));
-            const result = await dht.get(keyBytes);
+            const resultIterator = await dht.get(keyBytes);
             
-            if (result) {
-                console.log(`📦 Index result type: ${Object.prototype.toString.call(result)}, length: ${result.length}`);
+            console.log(`📦 Index result type: ${Object.prototype.toString.call(resultIterator)}`);
+            
+            // Handle AsyncGenerator/Iterator pattern
+            if (resultIterator && typeof resultIterator[Symbol.asyncIterator] === 'function') {
+                console.log(`🔄 Processing index AsyncGenerator results...`);
                 
-                let resultString;
-                
-                // Handle different result types
-                if (result instanceof Uint8Array) {
-                    resultString = new TextDecoder().decode(result);
-                } else if (result instanceof ArrayBuffer) {
-                    resultString = new TextDecoder().decode(new Uint8Array(result));
-                } else if (Buffer.isBuffer(result)) {
-                    resultString = result.toString('utf8');
-                } else if (Array.isArray(result)) {
-                    resultString = new TextDecoder().decode(new Uint8Array(result));
-                } else {
-                    console.warn(`⚠️  Unexpected index result type: ${typeof result}`);
-                    resultString = String(result);
-                }
-                
-                const indexData = JSON.parse(resultString);
-                console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
-                
-                // Fetch each agent from the index
-                let discoveredCount = 0;
-                for (const agentId of indexData.agents || []) {
-                    if (!this.agents.has(agentId)) {
-                        const agent = await this.getAgentFromDHT(agentId);
-                        if (agent && !agent.deleted) {
-                            this.agents.set(agent.id, agent);
-                            console.log(`✨ Discovered agent from index: ${agent.name} (v${agent.recordVersion || 1})`);
-                            discoveredCount++;
+                for await (const record of resultIterator) {
+                    console.log(`📄 Processing index record...`);
+                    
+                    if (record && record.value) {
+                        let resultString;
+                        const value = record.value;
+                        
+                        console.log(`📦 Index value type: ${Object.prototype.toString.call(value)}, length: ${value.length}`);
+                        
+                        // Handle different value types
+                        if (value instanceof Uint8Array) {
+                            resultString = new TextDecoder().decode(value);
+                        } else if (value instanceof ArrayBuffer) {
+                            resultString = new TextDecoder().decode(new Uint8Array(value));
+                        } else if (Buffer.isBuffer(value)) {
+                            resultString = value.toString('utf8');
+                        } else if (Array.isArray(value)) {
+                            resultString = new TextDecoder().decode(new Uint8Array(value));
+                        } else {
+                            console.warn(`⚠️  Unexpected index value type: ${typeof value}`);
+                            resultString = String(value);
+                        }
+                        
+                        try {
+                            const indexData = JSON.parse(resultString);
+                            console.log(`📋 Found agent index with ${indexData.agents?.length || 0} agents`);
                             
-                            // Notify clients
-                            this.broadcastToClients({
-                                type: 'agent_discovered',
-                                agent: agent
-                            });
+                            // Fetch each agent from the index
+                            let discoveredCount = 0;
+                            for (const agentId of indexData.agents || []) {
+                                if (!this.agents.has(agentId)) {
+                                    const agent = await this.getAgentFromDHT(agentId);
+                                    if (agent && !agent.deleted) {
+                                        this.agents.set(agent.id, agent);
+                                        console.log(`✨ Discovered agent from index: ${agent.name} (v${agent.recordVersion || 1})`);
+                                        discoveredCount++;
+                                        
+                                        // Notify clients
+                                        this.broadcastToClients({
+                                            type: 'agent_discovered',
+                                            agent: agent
+                                        });
+                                    }
+                                }
+                            }
+                            
+                            // Batch save if we discovered any agents
+                            if (discoveredCount > 0) {
+                                console.log(`💾 Saving ${discoveredCount} discovered agents locally`);
+                                await this.saveAgentsToFile();
+                            }
+                            
+                            return; // Successfully processed index
+                        } catch (parseError) {
+                            console.warn(`⚠️  Failed to parse index JSON: ${parseError.message}`);
+                            continue; // Try next record if available
                         }
                     }
                 }
                 
-                // Batch save if we discovered any agents
-                if (discoveredCount > 0) {
-                    console.log(`💾 Saving ${discoveredCount} discovered agents locally`);
-                    await this.saveAgentsToFile();
+                console.log(`🔍 No valid index records found in DHT`);
+            } else {
+                console.log(`⚠️  Index result is not an async iterator, treating as direct result`);
+                
+                // Fallback: treat as direct result (older libp2p versions)
+                if (resultIterator) {
+                    let resultString;
+                    
+                    if (resultIterator instanceof Uint8Array) {
+                        resultString = new TextDecoder().decode(resultIterator);
+                    } else if (Buffer.isBuffer(resultIterator)) {
+                        resultString = resultIterator.toString('utf8');
+                    } else {
+                        resultString = String(resultIterator);
+                    }
+                    
+                    const indexData = JSON.parse(resultString);
+                    console.log(`📋 Found agent index (direct) with ${indexData.agents?.length || 0} agents`);
+                    
+                    // Process agents from index
+                    let discoveredCount = 0;
+                    for (const agentId of indexData.agents || []) {
+                        if (!this.agents.has(agentId)) {
+                            const agent = await this.getAgentFromDHT(agentId);
+                            if (agent && !agent.deleted) {
+                                this.agents.set(agent.id, agent);
+                                console.log(`✨ Discovered agent from index: ${agent.name} (v${agent.recordVersion || 1})`);
+                                discoveredCount++;
+                                
+                                this.broadcastToClients({
+                                    type: 'agent_discovered',
+                                    agent: agent
+                                });
+                            }
+                        }
+                    }
+                    
+                    if (discoveredCount > 0) {
+                        console.log(`💾 Saving ${discoveredCount} discovered agents locally`);
+                        await this.saveAgentsToFile();
+                    }
                 }
             }
         } catch (error) {
             console.log(`🔍 No agent index found in DHT (this is normal for new networks)`);
+            console.log(`🔍 Index error details: ${error.message}`);
         }
     }
 
